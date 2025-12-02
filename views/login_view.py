@@ -9,39 +9,49 @@ If we have time in the final week, we will add the Google Login button as an enh
 """
 
 import flet as ft
+from services.auth_service import AuthService
 
-def LoginView(page: ft.Page, on_login_success):
-    # 1. Create the Text Fields
+def LoginView(page: ft.Page, on_login_success_callback):
+    auth = AuthService()
+    
     user_input = ft.TextField(label="Username", width=300)
     pass_input = ft.TextField(label="Password", password=True, can_reveal_password=True, width=300)
-    
-    # 2. Define the Click Action
-    def login_clicked(e):
-        if not user_input.value or not pass_input.value:
-            page.snack_bar = ft.SnackBar(ft.Text("Please enter both username and password!"))
-            page.snack_bar.open = True
-            page.update()
-        else:
-            # TODO: Call the actual auth service here later
-            print(f"Login attempt: {user_input.value}")
-            # For now, just simulate success if they type "admin"
-            if user_input.value == "admin":
-                on_login_success() # This switches the page
+    error_text = ft.Text("", color="red")
 
-    # 3. Create the Layout (Center of screen)
+    def login_clicked(e):
+        username = user_input.value
+        password = pass_input.value
+        
+        if not username or not password:
+            error_text.value = "Please fill all fields."
+            error_text.update()
+            return
+
+        # CALL THE BACKEND
+        user = auth.login(username, password)
+        
+        if user == "DISABLED":
+            error_text.value = "Account is disabled. Contact Admin."
+            error_text.update()
+        elif user:
+            on_login_success_callback(user) # Pass the user object back to main.py
+        else:
+            error_text.value = "Invalid username or password."
+            error_text.update()
+
     return ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Welcome Back!", size=30, weight="bold"),
+                ft.Text("JudgeMeNot", size=40, weight="bold", color=ft.Colors.BLUE),
+                ft.Text("Sign in to continue", size=16),
+                ft.Divider(height=20, color="transparent"),
                 user_input,
                 pass_input,
-                ft.ElevatedButton("Login", on_click=login_clicked)
+                error_text,
+                ft.ElevatedButton("Login", on_click=login_clicked, width=300)
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=20
         ),
         alignment=ft.alignment.center,
         expand=True
     )
-
-ft.app(target=LoginView)
