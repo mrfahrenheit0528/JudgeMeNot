@@ -1,0 +1,137 @@
+import datetime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean, Text
+from sqlalchemy.orm import relationship
+from core.database import Base
+
+# ---------------------------------------------------------
+# 1. USERS & ROLES
+# ---------------------------------------------------------
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False) # IAS: Hashed
+    name = Column(String(100)) 
+    
+    # ROLES: 'Admin', 'AdminViewer', 'Judge', 'Tabulator'
+    role = Column(String(20), nullable=False) 
+    
+    # PERMISSIONS
+    is_active = Column(Boolean, default=True)
+    is_chairman = Column(Boolean, default=False) # For Pageant Tie-Breakers
+
+    # RELATIONSHIPS
+    scores_given = relationship("Score", back_populates="judge")
+    audit_logs = relationship("AuditLog", back_populates="user")
+
+# ---------------------------------------------------------
+# 2. EVENTS (The "Dual Engine")
+# ---------------------------------------------------------
+class Event(Base):
+    __tablename__ = 'events'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False) 
+    event_type = Column(String(20), nullable=False) # 'Pageant' or 'QuizBee'
+    
+    # STATUS: 'Active', 'Paused', 'Ended'
+    status = Column(String(20), default='Active') 
+    is_locked = Column(Boolean, default=False)
+    
+    # VISIBILITY
+    show_public_rankings = Column(Boolean, default=False) # Audience View Toggle
+    
+    segments = relationship("Segment", back_populates="event")
+    contestants = relationship("Contestant", back_populates="event")
+
+class Segment(Base):
+    """
+    Pageant = 'Swimwear', 'Evening Gown'
+    QuizBee = 'Easy Round', 'Difficult Round'
+    """
+    __tablename__ = 'segments'
+    
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey('events.id'))
+    name = Column(String(100), nullable=False)
+    order_index = Column(Integer) # 1, 2, 3...
+    
+    # PAGEANT SETTINGS
+    percentage_weight = Column(Float, default=0.0) # 0.30 = 30%
+    
+    # QUIZ BEE SETTINGS
+    points_per_question = Column(Integer, default=1)
+    total_questions = Column(Integer, default=10)
+    
+    event = relationship("Event", back_populates="segments")
+    criteria = relationship("Criteria", back_populates="segment")
+    scores = relationship("Score", back_populates="segment")
+
+class Criteria(Base):
+    """Only for Pageants (e.g., 'Poise' 40%)"""
+    __tablename__ = 'criteria'
+    
+    id = Column(Integer, primary_key=True)
+    segment_id = Column(Integer, ForeignKey('segments.id'))
+    name = Column(String(100), nullable=False)
+    weight = Column(Float, default=1.0) 
+    max_score = Column(Integer, default=10)
+    
+    segment = relationship("Segment", back_populates="criteria")
+    scores = relationship("Score", back_populates="criteria")
+
+# ---------------------------------------------------------
+# 3. CONTESTANTS
+# ---------------------------------------------------------
+class Contestant(Base):
+    __tablename__ = 'contestants'
+    
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey('events.id'))
+    
+    candidate_number = Column(Integer) # "Candidate #1"
+    name = Column(String(100), nullable=False)
+    gender = Column(String(10)) # 'Male', 'Female', or NULL
+    
+    # For Quiz Bees: Assign a specific tabulator to this team
+    assigned_tabulator_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    
+    event = relationship("Event", back_populates="contestants")
+    scores = relationship("Score", back_populates="contestant")
+
+# ---------------------------------------------------------
+# 4. SCORES & LOGS
+# ---------------------------------------------------------
+class Score(Base):
+    __tablename__ = 'scores'
+    
+    id = Column(Integer, primary_key=True)
+    
+    # WHO, WHOM, WHERE
+    contestant_id = Column(Integer, ForeignKey('contestants.id'))
+    judge_id = Column(Integer, ForeignKey('users.id')) 
+    segment_id = Column(Integer, ForeignKey('segments.id'))
+    criteria_id = Column(Integer, ForeignKey('criteria.id'), nullable=True) 
+    
+    # THE SCORE
+    score_value = Column(Float, default=0.0) 
+    
+    # QUIZ BEE METADATA
+    question_number = Column(Integer, nullable=True) 
+    is_correct = Column(Boolean, default=False)
+    
+    contestant = relationship("Contestant", back_populates="scores")
+    judge = relationship("User", back_populates="scores_given")
+    segment = relationship("Segment", back_populates="scores")
+    criteria = relationship("Criteria", back_populates="scores")
+
+class AuditLog(Base):
+    __tablename__ = 'audit_logs'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    action = Column(String(50)) 
+    details = Column(Text)
+    timestamp = Column(DateTime, default=datetime.datetime.now)
+    
+    user = relationship("User", back_populates="audit_logs")
