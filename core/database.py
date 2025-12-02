@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
 username = os.getenv("db_username")
-password = os.getenv("db_pass")
+password = os.getenv("db_pass", "")
 
 # ----------------------------------------------------------------
 # CONFIGURATION
