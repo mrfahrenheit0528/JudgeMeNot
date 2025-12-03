@@ -4,11 +4,11 @@ from services.admin_service import AdminService
 def AdminDashboardView(page: ft.Page, on_logout_callback):
     admin_service = AdminService()
 
-    # Ensure assets folder is used
+    # Ensure assets folder is used (Good addition by your teammate!)
     page.assets_dir = "assets"
 
     # ---------------------------------------------------------
-    # HEADER (reused style from LoginView)
+    # 1. HEADER (Teammate's Design)
     # ---------------------------------------------------------
     HEADER_COLOR = "#80C1FF" # Define the header color for reuse
 
@@ -18,7 +18,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     def contact_clicked(e):
         print("CONTACT clicked")
 
-    # Circular hammer logo
+    # Circular logo
     header_logo = ft.Container(
         width=45,
         height=45,
@@ -27,8 +27,9 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         border=ft.border.all(2, ft.Colors.BLACK),
         padding=5,
         content=ft.Image(
-            src="hammer.png",
-            fit=ft.ImageFit.CONTAIN
+            src="hammer.png", # Make sure hammer.png is in your /assets folder
+            fit=ft.ImageFit.CONTAIN,
+            error_content=ft.Icon(ft.Icons.GAVEL) # Fallback if image missing
         )
     )
 
@@ -61,7 +62,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     )
 
     # ---------------------------------------------------------
-    # 1. SIDEBAR + LAYOUT STATE (UPDATED BACKGROUND COLOR)
+    # 2. SIDEBAR STATE
     # ---------------------------------------------------------
 
     sidebar_container = ft.Container(
@@ -90,10 +91,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     )
 
     # ---------------------------------------------------------
-    # (Everything from dialogs to content views stays EXACTLY the same)
-    # ---------------------------------------------------------
-    # --- DIALOGS, USER VIEWS, EVENT VIEWS, RAIL, LOGOUT BUTTON ---
-    # (Your entire logic is untouched; only header added)
+    # 3. DIALOGS (User & Event Creation)
     # ---------------------------------------------------------
 
     # --- ADD USER DIALOG ---
@@ -112,27 +110,20 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
 
     def save_user(e):
         if not new_user_user.value or not new_user_pass.value:
-            page.snack_bar = ft.SnackBar(ft.Text("Please fill all fields"), bgcolor=ft.Colors.RED)
-            page.snack_bar.open = True
-            page.update()
+            page.open(ft.SnackBar(ft.Text("Please fill all fields"), bgcolor=ft.Colors.RED))
             return
 
         success, msg = admin_service.create_user(
-            new_user_name.value,
-            new_user_user.value,
-            new_user_pass.value,
-            new_user_role.value
+            new_user_name.value, new_user_user.value,
+            new_user_pass.value, new_user_role.value
         )
         
         if success:
-            page.snack_bar = ft.SnackBar(ft.Text("User Added!"), bgcolor=ft.Colors.GREEN)
-            page.dialog.open = False
+            page.open(ft.SnackBar(ft.Text("User Added!"), bgcolor=ft.Colors.GREEN))
+            page.close(user_dialog)
             load_users_view()
         else:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED)
-
-        page.snack_bar.open = True
-        page.update()
+            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED))
 
     user_dialog = ft.AlertDialog(
         title=ft.Text("Add New User"),
@@ -141,9 +132,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     )
 
     def open_add_user_dialog(e):
-        page.dialog = user_dialog
-        user_dialog.open = True
-        page.update()
+        page.open(user_dialog)
 
     # --- ADD EVENT DIALOG ---
     new_event_name = ft.TextField(label="Event Name")
@@ -157,22 +146,17 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
 
     def save_event(e):
         if not new_event_name.value or not new_event_type.value:
-            page.snack_bar = ft.SnackBar(ft.Text("Please fill all fields"), bgcolor=ft.Colors.RED)
-            page.snack_bar.open = True
-            page.update()
+            page.open(ft.SnackBar(ft.Text("Please fill all fields"), bgcolor=ft.Colors.RED))
             return
 
         success, msg = admin_service.create_event(new_event_name.value, new_event_type.value)
 
         if success:
-            page.snack_bar = ft.SnackBar(ft.Text("Event Created!"), bgcolor=ft.Colors.GREEN)
-            page.dialog.open = False
+            page.open(ft.SnackBar(ft.Text("Event Created!"), bgcolor=ft.Colors.GREEN))
+            page.close(event_dialog)
             load_events_view()
         else:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED)
-
-        page.snack_bar.open = True
-        page.update()
+            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED))
 
     event_dialog = ft.AlertDialog(
         title=ft.Text("Create New Event"),
@@ -181,12 +165,10 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     )
 
     def open_add_event_dialog(e):
-        page.dialog = event_dialog
-        event_dialog.open = True
-        page.update()
+        page.open(event_dialog)
 
     # ---------------------------------------------------------
-    # CONTENT VIEW FUNCTIONS
+    # 4. CONTENT LOADING FUNCTIONS
     # ---------------------------------------------------------
 
     def load_welcome_view():
@@ -262,6 +244,14 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             icon = ft.Icons.WOMAN if e.event_type == "Pageant" else ft.Icons.QUIZ
             border_col = ft.Colors.PINK if e.event_type == "Pageant" else ft.Colors.GREEN
 
+            # --- THE FIX IS HERE ---
+            # Added the 'on_click' logic to navigate to the Config Page
+            manage_btn = ft.ElevatedButton(
+                "Manage", 
+                data=e.id,
+                on_click=lambda e: page.go(f"/admin/event/{e.control.data}") 
+            )
+
             card = ft.Container(
                 bgcolor=bg_color,
                 border=ft.border.all(1, border_col),
@@ -271,7 +261,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
                     ft.Row([ft.Icon(icon, color=border_col), ft.Text(e.event_type, weight="bold", color=border_col)]),
                     ft.Text(e.name, size=18, weight="bold"),
                     ft.Text(f"Status: {e.status}"),
-                    ft.ElevatedButton("Manage", data=e.id)
+                    manage_btn # Added the working button back
                 ])
             )
             events_grid.controls.append(card)
@@ -286,7 +276,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         page.update()
 
     # ---------------------------------------------------------
-    # NAVIGATION RAIL (Sidebar inside)
+    # 5. NAVIGATION RAIL
     # ---------------------------------------------------------
 
     def nav_change(e):
@@ -347,13 +337,10 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     sidebar_container.content = sidebar_content
 
     # ---------------------------------------------------------
-    # INITIAL LOAD
+    # 6. FINAL LAYOUT ASSEMBLY
     # ---------------------------------------------------------
+    
     load_welcome_view()
-
-    # ---------------------------------------------------------
-    # FINAL STRUCTURE (Header on top)
-    # ---------------------------------------------------------
 
     return ft.Column(
         expand=True,
