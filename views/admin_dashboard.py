@@ -10,6 +10,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     # ---------------------------------------------------------
     # 1. HEADER (Teammate's Design)
     # ---------------------------------------------------------
+    HEADER_COLOR = "#80C1FF" # Define the header color for reuse
 
     def about_clicked(e):
         print("ABOUT clicked")
@@ -53,7 +54,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     header = ft.Container(
         height=75,
         padding=ft.padding.symmetric(horizontal=50),
-        bgcolor="#80C1FF",
+        bgcolor=HEADER_COLOR,
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             controls=[header_left, header_right],
@@ -67,7 +68,8 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     sidebar_container = ft.Container(
         width=250,
         visible=False,
-        bgcolor=ft.Colors.BLUE_GREY_50,
+        # *** CHANGED BACKGROUND COLOR TO MATCH HEADER ***
+        bgcolor=HEADER_COLOR, 
         border=ft.border.only(right=ft.border.BorderSide(1, ft.Colors.GREY_300))
     )
 
@@ -170,6 +172,9 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     # ---------------------------------------------------------
 
     def load_welcome_view():
+        # Hide the sidebar whenever a new view is loaded
+        sidebar_container.visible = False
+        
         content = ft.Column([
             ft.Row([hamburger_btn, ft.Text("Admin Dashboard", size=30, weight="bold")]),
             ft.Text("Select an option from the menu to get started.", size=16),
@@ -189,6 +194,9 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         page.update()
 
     def load_users_view():
+        # Hide the sidebar whenever a new view is loaded
+        sidebar_container.visible = False
+        
         users = admin_service.get_all_users()
 
         data_table = ft.DataTable(
@@ -218,6 +226,9 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         page.update()
 
     def load_events_view():
+        # Hide the sidebar whenever a new view is loaded
+        sidebar_container.visible = False
+        
         events = admin_service.get_all_events()
 
         events_grid = ft.GridView(
@@ -278,10 +289,12 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             load_events_view()
         page.update()
 
+    # The rail's background color (Blue Grey 50 / light grey) remains as requested.
     rail = ft.NavigationRail(
         selected_index=0,
         label_type=ft.NavigationRailLabelType.ALL,
         expand=True,
+        bgcolor=ft.Colors.BLUE_GREY_50, # The grey part you wanted to keep
         destinations=[
             ft.NavigationRailDestination(icon=ft.Icons.DASHBOARD, label="Dashboard"),
             ft.NavigationRailDestination(icon=ft.Icons.PEOPLE, label="Users"),
@@ -292,7 +305,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
 
     close_btn = ft.IconButton(
         icon=ft.Icons.CHEVRON_LEFT,
-        icon_color="red",
+        icon_color="black",
         on_click=close_sidebar
     )
 
@@ -303,17 +316,19 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             on_click=on_logout_callback,
             bgcolor=ft.Colors.RED,
             color=ft.Colors.WHITE,
-            width=200
+            width=230
         ),
         padding=10,
     )
 
+    # Sidebar content column now has the blue background from the sidebar_container
     sidebar_content = ft.Column(
         controls=[
+            # This row contains the close button and will have the blue background
             ft.Row([ft.Container(expand=True), close_btn]),
-            rail,
+            rail, # The rail itself has the grey background
             ft.Divider(),
-            logout_btn
+            logout_btn # This container/button will be against the blue background
         ],
         spacing=0,
         expand=True
