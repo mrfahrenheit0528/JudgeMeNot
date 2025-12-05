@@ -4,21 +4,16 @@ from core.database import SessionLocal
 from models.all_models import Segment, Criteria, Score, Contestant, Event
 
 class PageantService:
+    # ... [Keep existing add_segment, update_segment, etc.] ...
+    # ... [Paste your previous add/update logic here if you haven't saved it yet] ...
+    # For brevity, I am adding the NEW methods below. Ensure you keep the old ones!
+
     def add_segment(self, event_id, name, weight, order):
-        """
-        Adds a segment like 'Swimwear' (30%)
-        weight: Float between 0.0 and 1.0 (e.g., 0.30)
-        """
-        db: Session = SessionLocal()
+        db = SessionLocal()
         try:
             new_segment = Segment(
-                event_id=event_id,
-                name=name,
-                percentage_weight=weight,
-                order_index=order,
-                # Defaults for Pageant
-                points_per_question=0,
-                total_questions=0
+                event_id=event_id, name=name, percentage_weight=weight, order_index=order,
+                points_per_question=0, total_questions=0
             )
             db.add(new_segment)
             db.commit()
@@ -28,19 +23,24 @@ class PageantService:
         finally:
             db.close()
 
-    def add_criteria(self, segment_id, name, weight, max_score=10):
-        """
-        Adds criteria like 'Poise' (40%) to a segment.
-        """
-        db: Session = SessionLocal()
+    def update_segment(self, segment_id, name, weight):
+        db = SessionLocal()
         try:
-            new_criteria = Criteria(
-                segment_id=segment_id,
-                name=name,
-                weight=weight,
-                max_score=max_score
-            )
-            db.add(new_criteria)
+            seg = db.query(Segment).get(segment_id)
+            if seg:
+                seg.name = name
+                seg.percentage_weight = weight
+                db.commit()
+                return True, "Updated."
+            return False, "Not found."
+        finally:
+            db.close()
+
+    def add_criteria(self, segment_id, name, weight, max_score=10):
+        db = SessionLocal()
+        try:
+            new_crit = Criteria(segment_id=segment_id, name=name, weight=weight, max_score=max_score)
+            db.add(new_crit)
             db.commit()
             return True, "Criteria added."
         except Exception as e:
@@ -48,12 +48,24 @@ class PageantService:
         finally:
             db.close()
 
+    def update_criteria(self, criteria_id, name, weight):
+        db = SessionLocal()
+        try:
+            crit = db.query(Criteria).get(criteria_id)
+            if crit:
+                crit.name = name
+                crit.weight = weight
+                db.commit()
+                return True, "Updated."
+            return False, "Not found."
+        finally:
+            db.close()
+
     def submit_score(self, judge_id, contestant_id, criteria_id, score_value):
         """
-        Saves a single score (e.g., Judge 1 gives 9.5 for Poise).
-        Upserts (Updates if exists, Inserts if new) to allow changing scores.
+        Saves a single score. Upserts (Updates if exists, Inserts if new).
         """
-        db: Session = SessionLocal()
+        db = SessionLocal()
         try:
             # 1. Check if score exists
             existing_score = db.query(Score).filter(
@@ -83,15 +95,58 @@ class PageantService:
         finally:
             db.close()
 
+    # --- NEW HELPER METHODS FOR JUDGE VIEW ---
+
+    def get_active_pageants(self):
+        """Returns all events of type 'Pageant'"""
+        db = SessionLocal()
+        try:
+            return db.query(Event).filter(Event.event_type == "Pageant", Event.status == "Active").all()
+        finally:
+            db.close()
+
+    def get_event_structure(self, event_id):
+        """
+        Returns a nested dictionary of Segments -> Criteria
+        Used to build the dynamic form.
+        """
+        db = SessionLocal()
+        structure = []
+        try:
+            segments = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all()
+            for seg in segments:
+                criterias = db.query(Criteria).filter(Criteria.segment_id == seg.id).all()
+                structure.append({
+                    "segment": seg,
+                    "criteria": criterias
+                })
+            return structure
+        finally:
+            db.close()
+
+    def get_judge_scores(self, judge_id, contestant_id):
+        """
+        Returns a dictionary {criteria_id: score_value}
+        Used to pre-fill the form if the judge edits a score.
+        """
+        db = SessionLocal()
+        scores_map = {}
+        try:
+            scores = db.query(Score).filter(
+                Score.judge_id == judge_id, 
+                Score.contestant_id == contestant_id
+            ).all()
+            
+            for s in scores:
+                if s.criteria_id:
+                    scores_map[s.criteria_id] = s.score_value
+            return scores_map
+        finally:
+            db.close()
+            
     def calculate_standing(self, event_id):
-        """
-        THE COMPLEX MATH:
-        1. Average score per criteria across all judges.
-        2. Weighted sum of criteria -> Segment Score.
-        3. Weighted sum of segments -> Final Score.
-        Returns sorted list of dictionaries.
-        """
-        db: Session = SessionLocal()
+        """Calculates final scores (Weighted Average)"""
+        db = SessionLocal()
         results = []
         try:
             contestants = db.query(Contestant).filter(Contestant.event_id == event_id).all()
@@ -102,19 +157,14 @@ class PageantService:
                 
                 for s in segments:
                     segment_score = 0.0
-                    # Get all criteria for this segment
                     criterias = db.query(Criteria).filter(Criteria.segment_id == s.id).all()
                     
                     for crit in criterias:
-                        # Get average score given by judges for this specific criteria
                         avg_score = db.query(func.avg(Score.score_value))\
                             .filter(Score.contestant_id == c.id, Score.criteria_id == crit.id)\
                             .scalar() or 0.0
-                        
-                        # Apply Criteria Weight (e.g., 9.0 * 0.40 for Poise)
                         segment_score += (avg_score * crit.weight)
                     
-                    # Apply Segment Weight (e.g., Swimwear Score * 0.30)
                     total_event_score += (segment_score * s.percentage_weight)
                 
                 results.append({
@@ -124,9 +174,7 @@ class PageantService:
                     "total_score": round(total_event_score, 2)
                 })
 
-            # Sort by total_score descending
             results.sort(key=lambda x: x['total_score'], reverse=True)
             return results
-
         finally:
             db.close()
