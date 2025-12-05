@@ -173,3 +173,44 @@ class PageantService:
             return results
         finally:
             db.close()
+            
+    def set_active_segment(self, event_id, segment_id):
+        """
+        Activates one segment and deactivates all others for this event.
+        If segment_id is None, it deactivates ALL (Stop Event).
+        """
+        db = SessionLocal()
+        try:
+            # 1. Deactivate ALL segments for this event
+            segments = db.query(Segment).filter(Segment.event_id == event_id).all()
+            for seg in segments:
+                seg.is_active = False
+            
+            # 2. Activate target segment
+            if segment_id:
+                target = db.query(Segment).get(segment_id)
+                if target:
+                    target.is_active = True
+                    msg = f"Segment '{target.name}' is now ACTIVE."
+                else:
+                    msg = "Segment not found."
+            else:
+                msg = "All segments deactivated."
+
+            db.commit()
+            return True, msg
+        except Exception as e:
+            return False, str(e)
+        finally:
+            db.close()
+
+    def get_active_segment(self, event_id):
+        """Returns the single active segment object, or None"""
+        db = SessionLocal()
+        try:
+            return db.query(Segment).filter(
+                Segment.event_id == event_id, 
+                Segment.is_active == True
+            ).first()
+        finally:
+            db.close()

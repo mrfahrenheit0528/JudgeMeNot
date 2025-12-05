@@ -55,19 +55,21 @@ class Segment(Base):
     id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey('events.id'))
     name = Column(String(100), nullable=False)
-    order_index = Column(Integer) # 1, 2, 3...
+    order_index = Column(Integer)
     
-    # PAGEANT SETTINGS
-    percentage_weight = Column(Float, default=0.0) # 0.30 = 30%
+    # PAGEANT FIELDS
+    percentage_weight = Column(Float, default=0.0)
     
-    # QUIZ BEE SETTINGS
+    # NEW FIELD: Controls if judges can see this
+    is_active = Column(Boolean, default=False) 
+
+    # QUIZ BEE FIELDS
     points_per_question = Column(Integer, default=1)
     total_questions = Column(Integer, default=10)
     
     event = relationship("Event", back_populates="segments")
     criteria = relationship("Criteria", back_populates="segment")
     scores = relationship("Score", back_populates="segment")
-
 class Criteria(Base):
     """Only for Pageants (e.g., 'Poise' 40%)"""
     __tablename__ = 'criteria'

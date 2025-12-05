@@ -154,28 +154,53 @@ def JudgeView(page: ft.Page, on_logout_callback):
         nonlocal current_event, selected_segment
         current_event = event
         
-        structure = pageant_service.get_event_structure(current_event.id)
-        if not structure:
-            page.open(ft.SnackBar(ft.Text("No segments configured!"), bgcolor="red"))
+        # CHANGED: Instead of getting structure[0], get the ACTIVE segment
+        active_seg = pageant_service.get_active_segment(current_event.id)
+        
+        if not active_seg:
+            # Show "Waiting Room" if nothing is active
+            show_waiting_room()
             return
 
-        selected_segment = structure[0]
-        render_dashboard(structure)
-
-    def render_dashboard(structure):
-        # 1. Segment Dropdown
-        segment_options = [ft.dropdown.Option(text=s['segment'].name, key=str(i)) for i, s in enumerate(structure)]
+        # We still need the full structure to map criteria, but we filter for the active one
+        structure = pageant_service.get_event_structure(current_event.id)
         
-        segment_dropdown = ft.Dropdown(
-            options=segment_options,
-            value="0", 
-            text_size=14,
-            width=200,
-            border_color="transparent",
-            text_style=ft.TextStyle(weight="bold", color=ft.Colors.BLUE_800, size=16),
-            prefix_icon=ft.Icons.CATEGORY,
-            on_change=lambda e: change_segment(e, structure)
+        # Find the structure dict corresponding to the active segment
+        target_struct = next((s for s in structure if s['segment'].id == active_seg.id), None)
+        
+        if target_struct:
+            selected_segment = target_struct
+            render_dashboard(target_struct) # Pass single segment structure
+        else:
+            page.open(ft.SnackBar(ft.Text("Error loading active segment data"), bgcolor="red"))
+
+    def show_waiting_room():
+        main_container.content = ft.Column([
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=lambda e: load_event_selector())]),
+            ft.Container(
+                content=ft.Column([
+                    ft.ProgressRing(),
+                    ft.Text("Waiting for Admin...", size=20, weight="bold"),
+                    ft.Text("No segment is currently active.", color="grey"),
+                    ft.ElevatedButton("Refresh", icon=ft.Icons.REFRESH, on_click=lambda e: enter_scoring_dashboard(current_event))
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                alignment=ft.alignment.center,
+                expand=True
+            )
+        ], expand=True)
+        page.update()
+
+    def render_dashboard(structure_item):
+        # REMOVED: Segment Dropdown (Judge cannot choose anymore)
+        
+        # Display Current Segment Name
+        segment_title = ft.Text(
+            f"Segment: {structure_item['segment'].name}", 
+            size=20, weight="bold", color=ft.Colors.BLUE_800
         )
+
+        # ... (Gender Selector and Grid Logic remains mostly the same) ...
+        # ... (However, 'change_segment' function is deleted as it's no longer needed) ...
 
         # 2. Gender Switcher
         gender_selector = ft.SegmentedButton(
@@ -403,17 +428,18 @@ def JudgeView(page: ft.Page, on_logout_callback):
         rebuild_view(0)
 
         # Top Control Bar (Unified Row)
+        # ... (Inside main_container.content assembly) ...
         top_bar = ft.Container(
             padding=10,
             content=ft.Row([
                 ft.Row([
                     ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=lambda e: load_event_selector()),
-                    ft.Text("Segment:", size=16, weight="bold"),
-                    segment_dropdown, 
+                    segment_title, # Static Text instead of Dropdown
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 
                 ft.Row([
-                    gender_selector # Moves here
+                    ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Check Updates", on_click=lambda e: enter_scoring_dashboard(current_event)),
+                    gender_selector
                 ])
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN) 
         )
