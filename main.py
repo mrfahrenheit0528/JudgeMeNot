@@ -2,7 +2,8 @@ import flet as ft
 from services.auth_service import AuthService
 from views.login_view import LoginView
 from views.admin_dashboard import AdminDashboardView
-from views.admin_config_view import AdminConfigView # <--- Crucial Import
+from views.admin_config_view import AdminConfigView 
+from views.judge_view import JudgeView
 
 def main(page: ft.Page):
     page.title = "JudgeMeNot System"
@@ -50,7 +51,23 @@ def main(page: ft.Page):
                 page.go("/login")
         
         # ---------------------------------------------------------
-        # ROUTE 3: EVENT CONFIGURATION (The Missing Link!)
+        # ROUTE 3: JUDGE VIEW 
+        # ---------------------------------------------------------
+        elif page.route == "/judge":
+            if user_id and user_role == "Judge":
+                page.views.append(
+                    ft.View(
+                        "/judge", 
+                        [JudgeView(page, on_logout)],
+                        padding=0
+                    )
+                )
+            else:
+                print("⛔ Access Denied: Judge View")
+                page.go("/login")
+
+        # ---------------------------------------------------------
+        # ROUTE 4: EVENT CONFIGURATION 
         # ---------------------------------------------------------
         elif page.route.startswith("/admin/event/"):
             # Check permissions
@@ -77,7 +94,7 @@ def main(page: ft.Page):
                 page.go("/login")
 
         # ---------------------------------------------------------
-        # ROUTE 4: CATCH ALL (404)
+        # ROUTE 5: CATCH ALL (404)
         # ---------------------------------------------------------
         else:
             print("⚠️ Unknown Route -> Redirecting to Login")
