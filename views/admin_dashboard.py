@@ -251,7 +251,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             page.open(edit_dialog)
 
         # TABLE LAYOUT
-        TABLE_WIDTH = 850 
+        TABLE_WIDTH = 850   # Increased width to prevent collapsing
         table_rows = []
 
         for u in users:
@@ -342,7 +342,6 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     # ---------------------------------------------------------
     def load_events_view():
         sidebar_container.visible = False
-        
         events = admin_service.get_all_events()
 
         events_grid = ft.GridView(
@@ -354,28 +353,50 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         )
 
         for e in events:
-            bg_color = ft.Colors.PINK_50 if e.event_type == "Pageant" else ft.Colors.GREEN_50
-            icon = ft.Icons.WOMAN if e.event_type == "Pageant" else ft.Icons.QUIZ
-            border_col = ft.Colors.PINK if e.event_type == "Pageant" else ft.Colors.GREEN
+            is_pageant = e.event_type == "Pageant"
+
+            # Background setup
+            if is_pageant:
+                # Use the image as card background
+                card_bg = ft.DecorationImage(
+                    fit=ft.ImageFit.COVER,
+                    opacity=0.30,
+                    src="pageant.png",
+                )
+                bg_color = None  # No solid color
+                border_col = ft.Colors.PINK
+                icon = ft.Icons.WOMAN
+            else:
+                card_bg = None
+                bg_color = ft.Colors.GREEN_50
+                border_col = ft.Colors.GREEN
+                icon = ft.Icons.QUIZ
 
             manage_btn = ft.ElevatedButton(
-                "Manage", 
+                "Manage",
                 data=e.id,
-                on_click=lambda ev: page.go(f"/admin/event/{ev.control.data}") 
+                on_click=lambda ev: page.go(f"/admin/event/{ev.control.data}")
             )
 
+            # Card
             card = ft.Container(
                 bgcolor=bg_color,
                 border=ft.border.all(1, border_col),
                 border_radius=10,
                 padding=15,
+                ink=True,
+                image=card_bg,                 # <-- BACKGROUND IMAGE HERE
                 content=ft.Column([
-                    ft.Row([ft.Icon(icon, color=border_col), ft.Text(e.event_type, weight="bold", color=border_col)]),
+                    ft.Row([
+                        ft.Icon(icon, color=border_col),
+                        ft.Text(e.event_type, weight="bold", color=border_col)
+                    ]),
                     ft.Text(e.name, size=18, weight="bold"),
                     ft.Text(f"Status: {e.status}"),
                     manage_btn
                 ])
             )
+
             events_grid.controls.append(card)
 
         main_content_area.content = ft.Column([
