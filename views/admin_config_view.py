@@ -41,7 +41,6 @@ def AdminConfigView(page: ft.Page, event_id: int):
     def render_contestant_tab():
         contestants = contestant_service.get_contestants(event_id)
         
-        # 1. Add Form
         add_row = ft.Row([
             c_number, 
             c_name, 
@@ -49,7 +48,6 @@ def AdminConfigView(page: ft.Page, event_id: int):
             ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_size=40, icon_color="blue", on_click=add_contestant_click)
         ])
 
-        # 2. List
         list_column = ft.Column(spacing=10, scroll="adaptive")
         
         for c in contestants:
@@ -103,7 +101,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
             if success:
                 page.open(ft.SnackBar(ft.Text("Contestant Added!"), bgcolor="green"))
                 c_name.value = ""
-                c_number.value = str(num + 1) # Auto-increment for convenience
+                c_number.value = str(num + 1) 
                 refresh_ui()
             else:
                 page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
@@ -120,7 +118,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
              page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     # ---------------------------------------------------------
-    # 3. PAGEANT CONFIGURATION UI (TAB 1 - Logic A)
+    # 3. PAGEANT CONFIGURATION UI (TAB 1)
     # ---------------------------------------------------------
     p_seg_name = ft.TextField(label="Segment Name (e.g., Swimwear)", width=280)
     p_seg_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
@@ -128,22 +126,107 @@ def AdminConfigView(page: ft.Page, event_id: int):
     p_crit_name = ft.TextField(label="Criteria Name (e.g., Poise)", width=280)
     p_crit_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
     
-    # State tracking for edits
     selected_segment_id = None 
     editing_segment_id = None 
     editing_criteria_id = None 
+    
+    # --- SAFETY CONFIRMATION STATE ---
+    pending_action_seg_id = None # Stores the ID we want to activate/deactivate
+    
+    # 1. Simple Confirm Dialog
+    def confirm_simple_action(e):
+        execute_toggle(pending_action_seg_id)
+        page.close(simple_dialog)
 
+    simple_dialog = ft.AlertDialog(
+        title=ft.Text("Confirm Activation"),
+        content=ft.Text("Are you sure you want to activate this segment?"),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: page.close(simple_dialog)),
+            ft.TextButton("Yes, Activate", on_click=confirm_simple_action),
+        ]
+    )
+
+    # 2. Strict Confirm Dialog (Requires Typing)
+    confirm_input = ft.TextField(label="Type CONFIRM", border_color="red")
+    confirm_btn = ft.ElevatedButton("Proceed", bgcolor="red", color="white", disabled=True)
+
+    def validate_strict_input(e):
+        confirm_btn.disabled = (confirm_input.value != "CONFIRM")
+        confirm_btn.update()
+
+    def confirm_strict_action(e):
+        execute_toggle(pending_action_seg_id)
+        page.close(strict_dialog)
+        confirm_input.value = "" # Reset
+
+    confirm_btn.on_click = confirm_strict_action
+    confirm_input.on_change = validate_strict_input
+
+    strict_dialog = ft.AlertDialog(
+        title=ft.Row([ft.Icon(ft.Icons.WARNING, color="red"), ft.Text("Warning: Disruptive Action")]),
+        content=ft.Column([
+            ft.Text("You are about to deactivate the current segment or swap to a new one."),
+            ft.Text("Judges might be in the middle of scoring!"),
+            ft.Container(height=10),
+            ft.Text("Type 'CONFIRM' to proceed:", size=12, weight="bold"),
+            confirm_input
+        ], tight=True, width=400),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: page.close(strict_dialog)),
+            confirm_btn
+        ]
+    )
+
+    # Main Logic to decide which dialog to show
+    def request_toggle_status(seg_id):
+        nonlocal pending_action_seg_id
+        pending_action_seg_id = seg_id
+        
+        # Check if there is currently an active segment
+        active_seg = pageant_service.get_active_segment(event_id)
+        
+        # Scenario A: Deactivate All (seg_id is None) -> STRICT
+        if seg_id is None:
+            if not active_seg: return # Nothing to do
+            page.open(strict_dialog)
+            return
+
+        # Scenario B: Swapping (Active exists, and it's different) -> STRICT
+        if active_seg and active_seg.id != seg_id:
+            page.open(strict_dialog)
+            return
+            
+        # Scenario C: Deactivating Self -> STRICT
+        if active_seg and active_seg.id == seg_id:
+             page.open(strict_dialog)
+             return
+
+        # Scenario D: Just Activating (No current active) -> SIMPLE
+        page.open(simple_dialog)
+
+    def execute_toggle(seg_id):
+        success, msg = pageant_service.set_active_segment(event_id, seg_id)
+        if success:
+            page.open(ft.SnackBar(ft.Text(msg), bgcolor="green"))
+            refresh_ui()
+        else:
+            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
+
+    # --- UI RENDERER ---
     def render_pageant_ui():
         db = SessionLocal()
         segments = db.query(Segment).filter(Segment.event_id == event_id).all()
         
         ui_column = ft.Column(spacing=20, scroll="adaptive")
         
-        # Header Row (Added "Stop All" button for safety)
+        # Header Row
         ui_column.controls.append(ft.Row([
             ft.Text("Pageant Configuration", size=24, weight="bold"),
             ft.Row([
-                ft.OutlinedButton("Deactivate All", icon=ft.Icons.STOP_CIRCLE, on_click=lambda e: toggle_segment_status(None)),
+                ft.OutlinedButton("Deactivate All", icon=ft.Icons.STOP_CIRCLE, 
+                                  style=ft.ButtonStyle(color="red"),
+                                  on_click=lambda e: request_toggle_status(None)), # Calls Check
                 ft.ElevatedButton("Add Segment", icon=ft.Icons.ADD, on_click=open_add_seg_dialog)
             ])
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
@@ -152,13 +235,10 @@ def AdminConfigView(page: ft.Page, event_id: int):
 
         for seg in segments:
             current_total_weight += seg.percentage_weight
-            # ... (Criteria fetching logic stays same) ...
             criterias = db.query(Criteria).filter(Criteria.segment_id == seg.id).all()
             
             crit_list = ft.Column(spacing=5)
-            # ... (Criteria rendering loop stays same) ...
             for c in criterias:
-                # ... (Existing criteria UI code) ...
                 crit_list.controls.append(
                     ft.Container(
                         content=ft.Row([
@@ -176,9 +256,9 @@ def AdminConfigView(page: ft.Page, event_id: int):
                     )
                 )
 
-            # --- NEW: STATUS INDICATOR & BUTTON ---
+            # STATUS INDICATOR
             if seg.is_active:
-                status_color = ft.Colors.GREEN_100
+                status_color = ft.Colors.GREEN_50
                 status_text = "ACTIVE"
                 status_icon = ft.Icons.RADIO_BUTTON_CHECKED
                 action_tooltip = "Deactivate"
@@ -193,18 +273,18 @@ def AdminConfigView(page: ft.Page, event_id: int):
             card = ft.Card(
                 content=ft.Container(
                     bgcolor=status_color,
-                    border=border_side, # Highlight active card
+                    border=border_side,
                     padding=15,
                     content=ft.Column([
                         ft.Row([
                             ft.Row([
-                                # Activation Button
+                                # Activation Button (Calls request_toggle_status)
                                 ft.IconButton(
                                     icon=status_icon, 
                                     icon_color="green" if seg.is_active else "grey",
                                     tooltip=action_tooltip,
                                     data=seg.id,
-                                    on_click=lambda e: toggle_segment_status(e.control.data)
+                                    on_click=lambda e: request_toggle_status(e.control.data)
                                 ),
                                 ft.Text(f"{seg.name}", size=18, weight="bold"),
                                 ft.Chip(label=ft.Text(f"{int(seg.percentage_weight * 100)}%")),
@@ -226,24 +306,19 @@ def AdminConfigView(page: ft.Page, event_id: int):
             )
             ui_column.controls.append(card)
         
-        # ... (Total weight warning logic stays same) ...
+        if current_total_weight > 1.0:
+            ui_column.controls.append(ft.Text(f"⚠️ Total Weight is {int(current_total_weight*100)}%. It should be 100%.", color="red"))
+        elif current_total_weight < 1.0:
+            ui_column.controls.append(ft.Text(f"ℹ️ Total Weight is {int(current_total_weight*100)}%. Add more segments.", color="blue"))
+        else:
+             ui_column.controls.append(ft.Text("✅ Total Weight is 100%. Config Complete.", color="green"))
+
         db.close()
         return ft.Container(content=ui_column, padding=20)
-
-        # --- NEW ACTION HANDLER ---
-    def toggle_segment_status(seg_id):
-        # If seg_id is passed, activate it. If None, deactivate all.
-        success, msg = pageant_service.set_active_segment(event_id, seg_id)
-        if success:
-            page.open(ft.SnackBar(ft.Text(msg), bgcolor="green"))
-            refresh_ui()
-        else:
-            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     def save_segment(e):
         try:
             raw_val = float(p_seg_weight.value)
-            # Smart Convert: If they type 50, treat as 0.5. If 0.5, treat as 0.5
             if raw_val > 1.0: 
                 w = raw_val / 100.0
             else:
