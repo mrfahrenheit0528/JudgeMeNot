@@ -295,7 +295,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
 
         # 1. Get Rankings (Dictionary now)
         rankings = pageant_service.get_preliminary_rankings(event_id)
-        
+
         # 2. Build Lists
         qualifiers_controls = []
         eliminated_controls = []
@@ -343,7 +343,6 @@ def AdminConfigView(page: ft.Page, event_id: int):
                 final_confirm_btn
             ]
         )
-
         final_confirm_btn.on_click = lambda e: execute_final_activation(seg_id, limit, dlg)
         page.open(dlg)
 
@@ -654,37 +653,131 @@ def AdminConfigView(page: ft.Page, event_id: int):
             ], expand=True)
         )
 
-    # ---------------------------------------------------------
-    # 6. JUDGES SCORES TAB
+     # 6. TABULATION & RESULTS TAB (REVAMPED)
     # ---------------------------------------------------------
     def render_scores_tab():
-        scores_data = pageant_service.get_all_scores_detailed(event_id)
-        if not scores_data:
-            return ft.Container(content=ft.Text("No scores recorded yet.", italic=True, size=16), alignment=ft.alignment.center)
-
-        table = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Segment")),
+        db = SessionLocal()
+        segments = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all()
+        db.close()
+         # Helper: Build Table for a Segment (Columns = Judges)
+        def build_segment_table(gender_data, judges, title, color):
+            cols = [
+                ft.DataColumn(ft.Text("Rank"), numeric=True),
+                ft.DataColumn(ft.Text("#"), numeric=True),
                 ft.DataColumn(ft.Text("Candidate")),
-                ft.DataColumn(ft.Text("Judge")),
-                ft.DataColumn(ft.Text("Criteria")),
-                ft.DataColumn(ft.Text("Score"), numeric=True),
-            ],
-            rows=[
-                ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(s['segment'])),
-                    ft.DataCell(ft.Text(s['candidate'])),
-                    ft.DataCell(ft.Text(s['judge'])),
-                    ft.DataCell(ft.Text(s['criteria'])),
-                    ft.DataCell(ft.Text(str(s['score']), weight="bold")),
-                ]) for s in scores_data
-            ],
-            border=ft.border.all(1, ft.Colors.GREY_300),
-            vertical_lines=ft.border.BorderSide(1, ft.Colors.GREY_200),
-            heading_row_color=ft.Colors.BLUE_50
-        )
-        return ft.Container(padding=20, content=ft.Column([ft.Row([ft.Text("Judges' Score Sheet", size=20, weight="bold"), ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Refresh Scores", on_click=lambda e: refresh_ui())], alignment="spaceBetween"), ft.Divider(), ft.Row([table], scroll="adaptive", expand=True)], expand=True))
+            ]
+            
+            # Show Full Judge Names
+            for j_name in judges:
+                cols.append(ft.DataColumn(ft.Text(j_name, size=12, weight="bold"), numeric=True))
+            
+            cols.append(ft.DataColumn(ft.Text("Average"), numeric=True))
 
+            rows = []
+            for r in gender_data:
+                cells = [
+                    ft.DataCell(ft.Text(str(r['rank']), weight="bold")),
+                    ft.DataCell(ft.Text(str(r['number']))),
+                    ft.DataCell(ft.Text(r['name'], weight="bold" if r['rank']<=3 else "normal")),
+                ]
+                for score in r['scores']:
+                    cells.append(ft.DataCell(ft.Text(str(score))))
+                
+                cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="green")))
+                rows.append(ft.DataRow(cells=cells))
+
+            return ft.Column([
+                ft.Container(content=ft.Text(title, weight="bold", color="white"), bgcolor=color, padding=10, border_radius=5, alignment=ft.alignment.center),
+                ft.DataTable(columns=cols, rows=rows, column_spacing=20, heading_row_height=40)
+            ], expand=True, scroll="adaptive")
+
+        # Helper: Build Table for Overall (Columns = Segments)
+        def build_overall_table(gender_data, segment_names, title, color):
+            cols = [
+                ft.DataColumn(ft.Text("Rank"), numeric=True),
+                ft.DataColumn(ft.Text("#"), numeric=True),
+                ft.DataColumn(ft.Text("Candidate")),
+            ]
+            
+            # Show Segment Names
+            for seg_name in segment_names:
+                cols.append(ft.DataColumn(ft.Text(seg_name, size=12, weight="bold"), numeric=True))
+            
+            cols.append(ft.DataColumn(ft.Text("Total %"), numeric=True))
+
+            rows = []
+            for r in gender_data:
+                cells = [
+                    ft.DataCell(ft.Text(str(r['rank']), weight="bold")),
+                    ft.DataCell(ft.Text(str(r['number']))),
+                    ft.DataCell(ft.Text(r['name'], weight="bold" if r['rank']<=3 else "normal")),
+                ]
+                for score in r['segment_scores']:
+                    cells.append(ft.DataCell(ft.Text(str(score))))
+                
+                cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="green")))
+                rows.append(ft.DataRow(cells=cells))
+
+            return ft.Column([
+                ft.Container(content=ft.Text(title, weight="bold", color="white"), bgcolor=color, padding=10, border_radius=5, alignment=ft.alignment.center, width=float("inf")),
+                ft.DataTable(columns=cols, rows=rows, column_spacing=20, heading_row_height=40, width=float("inf")) # Full width
+            ], expand=True, scroll="adaptive")
+
+        def get_tab_content(seg_id=None):
+            if seg_id is None:
+                # OVERALL: Use get_overall_breakdown
+                matrix = pageant_service.get_overall_breakdown(event_id)
+                seg_names = matrix['segments']
+                
+                # FULL WIDTH STACKED
+                male_table = build_overall_table(matrix['Male'], seg_names, "MALE OVERALL STANDING", ft.Colors.BLUE)
+                female_table = build_overall_table(matrix['Female'], seg_names, "FEMALE OVERALL STANDING", ft.Colors.PINK)
+                
+                return ft.Container(
+                    padding=10,
+                    content=ft.Column([
+                        male_table,
+                        ft.Divider(),
+                        female_table
+                    ], scroll="adaptive", expand=True)
+                )
+            else:
+                # SEGMENT: Use get_segment_tabulation (Judge Matrix)
+                matrix = pageant_service.get_segment_tabulation(event_id, seg_id)
+                judges = matrix['judges']
+                
+                # SIDE BY SIDE
+                male_col = build_segment_table(matrix['Male'], judges, "MALE RANKING", ft.Colors.BLUE)
+                female_col = build_segment_table(matrix['Female'], judges, "FEMALE RANKING", ft.Colors.PINK)
+                
+                return ft.Container(
+                    padding=10,
+                    content=ft.Row([
+                        male_col,
+                        ft.VerticalDivider(width=1),
+                        female_col
+                    ], expand=True)
+                )
+
+        score_tabs = [
+            ft.Tab(text="OVERALL TALLY", content=get_tab_content(None))
+        ]
+        for s in segments:
+            score_tabs.append(ft.Tab(text=s.name.upper(), content=get_tab_content(s.id)))
+
+        return ft.Container(
+            padding=0,
+            content=ft.Column([
+                ft.Container(
+                    padding=10,
+                    content=ft.Row([
+                        ft.Text("Live Tabulation Board", size=20, weight="bold"),
+                        ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Refresh Rankings", on_click=lambda e: refresh_ui())
+                    ], alignment="spaceBetween")
+                ),
+                ft.Tabs(tabs=score_tabs, animation_duration=300, expand=True, scrollable=True)
+            ], expand=True)
+        )
     # ---------------------------------------------------------
     # 7. QUIZ BEE (Minimal)
     # ---------------------------------------------------------
@@ -721,7 +814,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
             ft.Tab(text="Configuration", icon=ft.Icons.SETTINGS, content=render_config_tab()),
             ft.Tab(text="Contestants", icon=ft.Icons.PEOPLE, content=render_contestant_tab()),
             ft.Tab(text="Judges", icon=ft.Icons.GAVEL, content=render_judges_tab()),
-            ft.Tab(text="Scores", icon=ft.Icons.SCORE, content=render_scores_tab()),
+            ft.Tab(text="Tabulation", icon=ft.Icons.LEADERBOARD, content=render_scores_tab()), 
         ],
         expand=True
     )
