@@ -1,21 +1,25 @@
 import flet as ft
 import os
 from services.pageant_service import PageantService
-from services.quiz_service import QuizService
+from services.event_service import EventService
 from services.contestant_service import ContestantService 
 from core.database import SessionLocal
-from models.all_models import Event, Segment, Criteria
+from models.all_models import Event, Segment, Criteria, EventJudge
 
 def AdminConfigView(page: ft.Page, event_id: int):
     # Services
     pageant_service = PageantService()
-    quiz_service = QuizService()
+    event_service = EventService()
     contestant_service = ContestantService() 
+
+    # Only needed for dropdown list
+    from services.admin_service import AdminService
+    admin_service = AdminService()
 
     # State
     current_event = None
     uploaded_file_path = None 
-    
+
     # ---------------------------------------------------------
     # 1. FILE PICKER SETUP
     # ---------------------------------------------------------
@@ -29,7 +33,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
         img_preview.src = uploaded_file_path
         img_preview.visible = True
         img_preview.update()
-        
+
         upload_btn.text = "Change Photo"
         upload_btn.update()
         page.open(ft.SnackBar(ft.Text("Photo uploaded successfully!"), bgcolor="green"))
@@ -172,7 +176,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
              page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     # ---------------------------------------------------------
-    # 4. PAGEANT CONFIGURATION UI (TAB 1)
+    # 3. PAGEANT CONFIGURATION UI (TAB 1)
     # ---------------------------------------------------------
     p_seg_name = ft.TextField(label="Segment Name", width=280)
     p_seg_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
@@ -180,7 +184,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
     p_crit_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
     p_is_final = ft.Checkbox(label="Is Final Round?", value=False)
     p_qualifiers = ft.TextField(label="Qualifiers Count", value="5", width=280, visible=False, keyboard_type=ft.KeyboardType.NUMBER)
-    
+
     selected_segment_id = None 
     editing_segment_id = None 
     editing_criteria_id = None 
@@ -240,8 +244,8 @@ def AdminConfigView(page: ft.Page, event_id: int):
     def request_toggle_status(seg_id):
         nonlocal pending_action_seg_id
         pending_action_seg_id = seg_id
-        active_seg = pageant_service.get_active_segment(event_id)
-        
+        active_seg = event_service.get_active_segment(event_id)
+
         db = SessionLocal()
         all_segs = db.query(Segment).filter(Segment.event_id == event_id).all()
         final_is_active = any(s.is_active and s.is_final for s in all_segs)
@@ -267,7 +271,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
         page.open(simple_dialog) 
 
     def execute_toggle(seg_id):
-        success, msg = pageant_service.set_active_segment(event_id, seg_id)
+        success, msg = event_service.set_active_segment(event_id, seg_id)
         if success:
             page.open(ft.SnackBar(ft.Text(msg), bgcolor="green"))
             refresh_ui()
@@ -289,23 +293,31 @@ def AdminConfigView(page: ft.Page, event_id: int):
         limit = seg.qualifier_limit
         db.close()
 
+        # 1. Get Rankings (Dictionary now)
         rankings = pageant_service.get_preliminary_rankings(event_id)
+        
+        # 2. Build Lists
         qualifiers_controls = []
         eliminated_controls = []
-        
-        if not rankings:
-            qualifiers_controls.append(ft.Text("No scores recorded yet.", italic=True, color="orange"))
-        
-        for i, r in enumerate(rankings):
-            rank = i + 1
-            name = r['contestant'].name
-            score = r['score']
-            line = f"Rank {rank}: {name} ({score}%)"
-            
-            if i < limit:
-                qualifiers_controls.append(ft.Text(line, weight="bold", color="green", size=16))
-            else:
-                eliminated_controls.append(ft.Text(line, color="grey", size=14))
+
+        def build_gender_list(gender_rankings, gender_name):
+            if not gender_rankings: return
+            qualifiers_controls.append(ft.Text(f"--- {gender_name} ---", weight="bold", color="blue"))
+            eliminated_controls.append(ft.Text(f"--- {gender_name} ---", weight="bold", color="blue"))
+
+            for i, r in enumerate(gender_rankings):
+                rank = i + 1
+                line = f"#{rank} {r['contestant'].name} ({r['score']}%)"
+                if i < limit:
+                    qualifiers_controls.append(ft.Text(line, weight="bold", color="green"))
+                else:
+                    eliminated_controls.append(ft.Text(line, color="grey"))
+
+        build_gender_list(rankings['Male'], "MALE")
+        build_gender_list(rankings['Female'], "FEMALE")
+
+        if not qualifiers_controls:
+             qualifiers_controls.append(ft.Text("No scores recorded yet.", italic=True))
 
         final_confirm_input.value = ""
         final_confirm_input.on_change = validate_final_input
@@ -315,7 +327,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
         dlg = ft.AlertDialog(
             title=ft.Text("FINAL ROUND ACTIVATION"),
             content=ft.Column([
-                ft.Text(f"Activating this will ELIMINATE candidates below Rank {limit}.", color="red", weight="bold"),
+                ft.Text(f"Eliminating candidates below Rank {limit} (Per Gender).", color="red", weight="bold"),
                 ft.Divider(),
                 ft.Text(f"QUALIFIERS (Top {limit}):", weight="bold"),
                 ft.Column(controls=qualifiers_controls, spacing=2), 
@@ -331,6 +343,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
                 final_confirm_btn
             ]
         )
+
         final_confirm_btn.on_click = lambda e: execute_final_activation(seg_id, limit, dlg)
         page.open(dlg)
 
@@ -347,11 +360,11 @@ def AdminConfigView(page: ft.Page, event_id: int):
     def render_pageant_ui():
         db = SessionLocal()
         segments = db.query(Segment).filter(Segment.event_id == event_id).all()
-        
+
         final_round_is_active = any(s.is_active and s.is_final for s in segments)
 
         ui_column = ft.Column(spacing=20, scroll="adaptive")
-        
+
         ui_column.controls.append(ft.Row([
             ft.Text("Pageant Configuration", size=24, weight="bold"),
             ft.Row([
@@ -365,7 +378,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
         for seg in segments:
             if not seg.is_final:
                 current_total_weight += seg.percentage_weight
-            
+
             criterias = db.query(Criteria).filter(Criteria.segment_id == seg.id).all()
             crit_list = ft.Column(spacing=5)
             for c in criterias:
@@ -398,7 +411,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
                 status_text = "INACTIVE"
                 status_icon = ft.Icons.RADIO_BUTTON_UNCHECKED
                 border_side = None
-                
+
                 if final_round_is_active:
                     opacity = 0.5 
                     is_disabled = True 
@@ -448,7 +461,7 @@ def AdminConfigView(page: ft.Page, event_id: int):
                 )
             )
             ui_column.controls.append(card)
-        
+
         if current_total_weight > 1.0001:
             ui_column.controls.append(ft.Text(f"⚠️ Prelim Weight is {int(current_total_weight*100)}%. It should be 100%.", color="red"))
         elif current_total_weight < 0.999:
@@ -470,9 +483,9 @@ def AdminConfigView(page: ft.Page, event_id: int):
             limit = int(p_qualifiers.value) if p_is_final.value else 0
 
             if editing_segment_id:
-                success, msg = pageant_service.update_segment(editing_segment_id, p_seg_name.value, w, p_is_final.value, limit)
+                success, msg = event_service.update_segment(editing_segment_id, p_seg_name.value, w, p_is_final.value, limit)
             else:
-                success, msg = pageant_service.add_segment(event_id, p_seg_name.value, w, 1, p_is_final.value, limit)
+                success, msg = event_service.add_segment(event_id, p_seg_name.value, w, 1, p_is_final.value, limit)
 
             if success:
                 page.open(ft.SnackBar(ft.Text("Saved!"), bgcolor="green"))
@@ -553,41 +566,93 @@ def AdminConfigView(page: ft.Page, event_id: int):
         page.open(crit_dialog)
 
     # ---------------------------------------------------------
-    # 5. QUIZ BEE (Minimal)
+    # 5. JUDGE ASSIGNMENT TAB (UPDATED: DIALOG)
     # ---------------------------------------------------------
-    q_round_name = ft.TextField(label="Round Name", width=280)
-    q_points = ft.TextField(label="Points", width=280)
-    q_total_qs = ft.TextField(label="Total Qs", width=280)
-    
-    round_dialog = ft.AlertDialog(
-        title=ft.Text("Add Round"),
-        content=ft.Column([q_round_name, q_points, q_total_qs], height=220, width=300, tight=True),
-        actions=[ft.TextButton("Save", on_click=lambda e: save_round(e))]
+    j_select = ft.Dropdown(label="Select Judge", width=300)
+    j_is_chairman = ft.Checkbox(label="Is Chairman?", value=False)
+
+    def load_judge_options():
+        all_judges = admin_service.get_all_judges()
+        j_select.options = [ft.dropdown.Option(text=j.name, key=str(j.id)) for j in all_judges]
+        # j_select.update() <-- REMOVED to avoid error
+
+    def add_judge_click(e):
+        if not j_select.value:
+            page.open(ft.SnackBar(ft.Text("Please select a judge"), bgcolor="red"))
+            return
+        judge_id = int(j_select.value)
+        success, msg = event_service.assign_judge(event_id, judge_id, j_is_chairman.value)
+        if success:
+            page.open(ft.SnackBar(ft.Text(msg), bgcolor="green"))
+            page.close(assign_judge_dialog) # Close dialog
+            refresh_ui()
+        else:
+            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
+
+    # Define Dialog
+    assign_judge_dialog = ft.AlertDialog(
+        title=ft.Text("Assign Judge"),
+        content=ft.Column([
+            j_select,
+            j_is_chairman
+        ], height=150, width=300, tight=True),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: page.close(assign_judge_dialog)),
+            ft.ElevatedButton("Assign", on_click=add_judge_click)
+        ]
     )
 
-    def render_quiz_ui():
-        db = SessionLocal()
-        rounds = db.query(Segment).filter(Segment.event_id == event_id).all()
-        col = ft.Column(spacing=20)
-        col.controls.append(ft.Row([ft.Text("Quiz Bee", size=24, weight="bold"), ft.ElevatedButton("Add Round", on_click=lambda e: page.open(round_dialog))], alignment="spaceBetween"))
-        for r in rounds:
-            col.controls.append(ft.Card(content=ft.Container(padding=15, content=ft.Text(f"{r.name} ({r.points_per_question} pts)"))))
-        db.close()
-        return ft.Container(content=col, padding=20)
+    def open_assign_judge_dialog(e):
+        # Reset fields
+        j_select.value = None
+        j_is_chairman.value = False
+        load_judge_options() # Load options when opening
+        page.open(assign_judge_dialog)
 
-    def save_round(e):
-        try:
-            pts = float(q_points.value)
-            qs = int(q_total_qs.value)
-            success, msg = quiz_service.add_round(event_id, q_round_name.value, pts, qs, 1)
-            if success:
-                page.open(ft.SnackBar(ft.Text("Round Added!"), bgcolor="green"))
-                page.close(round_dialog)
-                refresh_ui()
-            else:
-                page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
-        except:
-             page.open(ft.SnackBar(ft.Text("Invalid Input"), bgcolor="red"))
+    def remove_judge_click(e):
+        assign_id = e.control.data
+        success, msg = event_service.remove_judge(assign_id)
+        if success:
+            page.open(ft.SnackBar(ft.Text("Judge removed"), bgcolor="green"))
+            refresh_ui()
+
+    def render_judges_tab():
+        assigned = event_service.get_assigned_judges(event_id)
+
+        list_column = ft.Column(spacing=10, scroll="adaptive", expand=True) # Scrollable list
+
+        for entry in assigned:
+            role_text = "Chairman" if entry.is_chairman else "Judge"
+            role_color = "orange" if entry.is_chairman else "blue"
+            card = ft.Container(
+                padding=10, 
+                bgcolor=ft.Colors.GREY_50, 
+                border_radius=10, 
+                content=ft.Row([
+                    ft.Row([
+                        ft.Icon(ft.Icons.GAVEL, color=role_color), 
+                        ft.Text(entry.judge.name, size=16, weight="bold"), 
+                        ft.Container(content=ft.Text(role_text, color="white", size=10), bgcolor=role_color, padding=5, border_radius=5)
+                    ]), 
+                    ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", data=entry.id, on_click=remove_judge_click)
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            )
+            list_column.controls.append(card)
+
+        if not assigned: 
+            list_column.controls.append(ft.Text("No judges assigned yet.", italic=True, color="grey"))
+
+        return ft.Container(
+            padding=20, 
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Assigned Judges", size=20, weight="bold"), 
+                    ft.ElevatedButton("Assign Judge", icon=ft.Icons.ADD, on_click=open_assign_judge_dialog)
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), 
+                ft.Divider(), 
+                list_column
+            ], expand=True)
+        )
 
     # ---------------------------------------------------------
     # 6. JUDGES SCORES TAB
@@ -621,7 +686,29 @@ def AdminConfigView(page: ft.Page, event_id: int):
         return ft.Container(padding=20, content=ft.Column([ft.Row([ft.Text("Judges' Score Sheet", size=20, weight="bold"), ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Refresh Scores", on_click=lambda e: refresh_ui())], alignment="spaceBetween"), ft.Divider(), ft.Row([table], scroll="adaptive", expand=True)], expand=True))
 
     # ---------------------------------------------------------
-    # 7. MAIN ASSEMBLY
+    # 7. QUIZ BEE (Minimal)
+    # ---------------------------------------------------------
+    q_round_name = ft.TextField(label="Round Name", width=280)
+    q_points = ft.TextField(label="Points", width=280)
+    q_total_qs = ft.TextField(label="Total Qs", width=280)
+
+    round_dialog = ft.AlertDialog(title=ft.Text("Add Round"), content=ft.Column([q_round_name, q_points, q_total_qs], height=220, width=300, tight=True), actions=[ft.TextButton("Save", on_click=lambda e: save_round(e))])
+
+    def render_quiz_ui():
+        db = SessionLocal(); rounds = db.query(Segment).filter(Segment.event_id == event_id).all()
+        col = ft.Column(spacing=20); col.controls.append(ft.Row([ft.Text("Quiz Bee", size=24, weight="bold"), ft.ElevatedButton("Add Round", on_click=lambda e: page.open(round_dialog))], alignment="spaceBetween"))
+        for r in rounds: col.controls.append(ft.Card(content=ft.Container(padding=15, content=ft.Text(f"{r.name} ({r.points_per_question} pts)"))))
+        db.close(); return ft.Container(content=col, padding=20)
+
+    def save_round(e):
+        try:
+            pts = float(q_points.value); qs = int(q_total_qs.value); success, msg = quiz_service.add_round(event_id, q_round_name.value, pts, qs, 1)
+            if success: page.open(ft.SnackBar(ft.Text("Round Added!"), bgcolor="green")); page.close(round_dialog); refresh_ui()
+            else: page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
+        except: page.open(ft.SnackBar(ft.Text("Invalid Input"), bgcolor="red"))
+
+    # ---------------------------------------------------------
+    # 8. MAIN ASSEMBLY
     # ---------------------------------------------------------
     def render_config_tab():
         if current_event.event_type == "Pageant": return render_pageant_ui()
@@ -631,21 +718,10 @@ def AdminConfigView(page: ft.Page, event_id: int):
         selected_index=0,
         animation_duration=300,
         tabs=[
-            ft.Tab(
-                text="Configuration",
-                icon=ft.Icons.SETTINGS,
-                content=render_config_tab() 
-            ),
-            ft.Tab(
-                text="Contestants",
-                icon=ft.Icons.PEOPLE,
-                content=render_contestant_tab() 
-            ),
-            ft.Tab(
-                text="Judges' Scores",
-                icon=ft.Icons.SCORE,
-                content=render_scores_tab() 
-            ),
+            ft.Tab(text="Configuration", icon=ft.Icons.SETTINGS, content=render_config_tab()),
+            ft.Tab(text="Contestants", icon=ft.Icons.PEOPLE, content=render_contestant_tab()),
+            ft.Tab(text="Judges", icon=ft.Icons.GAVEL, content=render_judges_tab()),
+            ft.Tab(text="Scores", icon=ft.Icons.SCORE, content=render_scores_tab()),
         ],
         expand=True
     )
@@ -653,7 +729,8 @@ def AdminConfigView(page: ft.Page, event_id: int):
     def refresh_ui():
         tabs.tabs[0].content = render_config_tab()
         tabs.tabs[1].content = render_contestant_tab()
-        tabs.tabs[2].content = render_scores_tab()
+        tabs.tabs[2].content = render_judges_tab()
+        tabs.tabs[3].content = render_scores_tab()
         page.update()
 
     return ft.Container(
