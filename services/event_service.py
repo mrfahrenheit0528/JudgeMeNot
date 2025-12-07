@@ -18,12 +18,26 @@ class EventService:
             db.close()
 
     def get_judge_events(self, judge_id):
+        """Returns ONLY events assigned to a specific judge that are Active"""
         db = SessionLocal()
         try:
+            # Join EventJudge to filter by judge_id
             return db.query(Event).join(EventJudge).filter(
                 EventJudge.judge_id == judge_id,
                 Event.status == 'Active'
             ).all()
+        finally:
+            db.close()
+
+    def is_judge_assigned(self, judge_id, event_id):
+        """Security check: verify assignment before entering"""
+        db = SessionLocal()
+        try:
+            exists = db.query(EventJudge).filter(
+                EventJudge.judge_id == judge_id,
+                EventJudge.event_id == event_id
+            ).first()
+            return exists is not None
         finally:
             db.close()
 
@@ -159,5 +173,20 @@ class EventService:
             # FIX: Use joinedload to fetch User data BEFORE session closes
             return db.query(EventJudge).options(joinedload(EventJudge.judge))\
                      .filter(EventJudge.event_id == event_id).all()
+        finally:
+            db.close()
+    
+    def update_event_status(self, event_id, status):
+        """Updates the status of an event (e.g. 'Active', 'Ended')"""
+        db = SessionLocal()
+        try:
+            event = db.query(Event).get(event_id)
+            if event:
+                event.status = status
+                db.commit()
+                return True, f"Event set to {status}"
+            return False, "Event not found"
+        except Exception as e:
+            return False, str(e)
         finally:
             db.close()

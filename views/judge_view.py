@@ -2,6 +2,7 @@ import flet as ft
 from services.pageant_service import PageantService
 from services.event_service import EventService # <--- NEW IMPORT
 from services.contestant_service import ContestantService
+from services.event_service import EventService
 import time, threading
 from datetime import datetime
 
@@ -10,7 +11,12 @@ def JudgeView(page: ft.Page, on_logout_callback):
     pageant_service = PageantService()
     event_service = EventService() # <--- NEW INSTANCE
     contestant_service = ContestantService()
+<<<<<<< HEAD
 
+=======
+    event_service = EventService()
+    
+>>>>>>> b1be397 (added event activation and deactivation)
     # Session Data
     judge_id = page.session.get("user_id")
     judge_name = page.session.get("user_name")
@@ -164,6 +170,7 @@ def JudgeView(page: ft.Page, on_logout_callback):
     # ---------------------------------------------------------
     def load_event_selector():
         stop_polling()
+<<<<<<< HEAD
         events = event_service.get_judge_events(judge_id)
         
         if not events:
@@ -171,13 +178,36 @@ def JudgeView(page: ft.Page, on_logout_callback):
                 ft.Icon(ft.Icons.EVENT_BUSY, size=60, color="grey"),
                 ft.Text("No events assigned to you.", size=20, color="grey"),
                 ft.Text("Please contact the Admin.", color="grey"),
+=======
+        # Disable button when leaving dashboard
+        submit_all_btn.disabled = True
+        if submit_all_btn.page:
+            submit_all_btn.update()
+        
+        # 1. Fetch Assigned Events
+        events = event_service.get_judge_events(judge_id)
+        
+        # 2. Handle Empty State (The Fix You Asked For)
+        if not events:
+            main_container.content = ft.Column([
+                ft.Icon(ft.Icons.EVENT_BUSY, size=60, color="grey"),
+                ft.Text("No active events found.", size=20, weight="bold", color="grey"),
+                ft.Text("Please wait for the Admin to start an event.", size=14, color="grey"),
+                ft.Container(height=20),
+                ft.ElevatedButton("Refresh List", icon=ft.Icons.REFRESH, on_click=lambda e: load_event_selector())
+>>>>>>> b1be397 (added event activation and deactivation)
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
             page.update()
             return
 
+<<<<<<< HEAD
+=======
+        # 3. Build Grid if events exist
+>>>>>>> b1be397 (added event activation and deactivation)
         grid = ft.GridView(expand=True, max_extent=300, spacing=20, run_spacing=20)
 
         for e in events:
+<<<<<<< HEAD
             grid.controls.append(ft.Container(
                 bgcolor="white", border_radius=15, padding=20, shadow=ft.BoxShadow(blur_radius=10, color="grey"),
                 content=ft.Column([
@@ -190,10 +220,40 @@ def JudgeView(page: ft.Page, on_logout_callback):
             ))
 
         main_container.content = ft.Column([ft.Text("Select Active Event", size=24, weight="bold"), ft.Divider(), grid], expand=True)
+=======
+            grid.controls.append(
+                ft.Container(
+                    bgcolor=ft.Colors.WHITE,
+                    border=ft.border.all(1, ft.Colors.BLUE_100),
+                    border_radius=15,
+                    padding=20,
+                    shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.BLUE_GREY_100),
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.STAR_ROUNDED, size=50, color=ft.Colors.ORANGE),
+                        ft.Text(e.name, weight="bold", size=18, text_align="center"),
+                        ft.Text(f"Status: {e.status}", color="green"),
+                        ft.ElevatedButton("Start Judging", on_click=lambda x, ev=e: enter_scoring_dashboard(ev))
+                    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    on_click=lambda x, ev=e: enter_scoring_dashboard(ev)
+                )
+            )
+        
+        main_container.content = ft.Column([
+            ft.Text("Select Active Event", size=24, weight="bold"),
+            ft.Divider(),
+            grid
+        ], expand=True)
+>>>>>>> b1be397 (added event activation and deactivation)
         page.update()
 
     def enter_scoring_dashboard(event):
         nonlocal current_event, selected_segment
+
+        # SECURITY CHECK (The Fix for Bug #2)
+        if not event_service.is_judge_assigned(judge_id, event.id):
+            page.open(ft.SnackBar(ft.Text("Access Denied: You are not assigned to this event."), bgcolor="red"))
+            return
+        
         current_event = event
         # Use EventService
         active_seg = event_service.get_active_segment(current_event.id)
