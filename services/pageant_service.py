@@ -1,10 +1,10 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, desc
 from core.database import SessionLocal
 from models.all_models import Segment, Criteria, Score, Contestant, Event, User, JudgeProgress, EventJudge
 
 class PageantService:
-    # ---------------------------------------------------------
+     # ---------------------------------------------------------
     # SEGMENT MANAGEMENT
     # ---------------------------------------------------------
     def add_segment(self, event_id, name, weight, order, is_final=False, limit=0):
@@ -190,26 +190,20 @@ class PageantService:
             return results
         finally:
             db.close()
-            
-    # ---------------------------------------------------------
-    # NEW: OVERALL BREAKDOWN (Segments as Columns)
-    # ---------------------------------------------------------
+
     def get_overall_breakdown(self, event_id):
-        """
-        Returns structure for Overall Tally:
-        {
-           'segments': ['Swimwear', 'Gown'],
-           'Male': [{number, name, segment_scores: [90, 85], total: 88}],
-           'Female': ...
-        }
-        """
         db = SessionLocal()
         try:
-            # 1. Get Non-Final Segments
+            # 1. Get Segments
             segments = db.query(Segment).filter(Segment.event_id == event_id, Segment.is_final == False).order_by(Segment.order_index).all()
             segment_names = [s.name for s in segments]
-            
+
+            # 2. Get Contestants
             contestants = db.query(Contestant).filter(Contestant.event_id == event_id).all()
+
+            # 3. Get Judges (Added this part)
+            assigned = db.query(User).join(EventJudge).filter(EventJudge.event_id == event_id).order_by(User.name).all()
+            judge_list = [u.name for u in assigned]
             
             data = {'Male': [], 'Female': []}
 
@@ -220,64 +214,52 @@ class PageantService:
                     "segment_scores": [],
                     "total": 0.0
                 }
-                
+
                 overall_weighted_score = 0.0
-                
+
                 for s in segments:
-                    # Calculate raw score for this segment (average of judges)
-                    # For each criteria, get avg of judges -> sum(avg * weight)
                     segment_raw_score = 0.0
                     criterias = db.query(Criteria).filter(Criteria.segment_id == s.id).all()
-                    
                     for crit in criterias:
                         avg = db.query(func.avg(Score.score_value))\
                             .filter(Score.contestant_id == c.id, Score.criteria_id == crit.id)\
                             .scalar() or 0.0
                         segment_raw_score += (avg * crit.weight)
-                    
+
                     row['segment_scores'].append(round(segment_raw_score, 2))
-                    
-                    # Add to overall total
                     overall_weighted_score += (segment_raw_score * s.percentage_weight)
-                
+
                 row['total'] = round(overall_weighted_score, 2)
-                
+
                 if c.gender in data:
                     data[c.gender].append(row)
-
-            # Sort
             for gender in ['Male', 'Female']:
                 data[gender].sort(key=lambda x: x['total'], reverse=True)
                 for i, r in enumerate(data[gender]):
                     r['rank'] = i + 1
-            
+
+            # Return includes 'judges' now
             return {
                 'segments': segment_names,
+                'judges': judge_list, 
                 'Male': data['Male'],
                 'Female': data['Female']
             }
-
+        
         finally:
             db.close()
 
-    # ---------------------------------------------------------
-    # TABULATION MATRIX (Judges as Columns - Per Segment)
-    # ---------------------------------------------------------
+        # ---------------------------------------------------------
+        # TABULATION MATRIX
+        # ---------------------------------------------------------
     def get_segment_tabulation(self, event_id, segment_id):
-        """
-        Returns breakdown per judge for a SINGLE segment.
-        """
         db = SessionLocal()
-        
         try:
-            # 1. Get Judges
             assigned = db.query(User).join(EventJudge).filter(EventJudge.event_id == event_id).order_by(User.name).all()
             judge_list = [u.name for u in assigned]
             judge_ids = [u.id for u in assigned]
-            
-            # 2. Get Contestants & Segment
+
             contestants = db.query(Contestant).filter(Contestant.event_id == event_id).all()
-            target_segment = db.query(Segment).get(segment_id)
             criterias = db.query(Criteria).filter(Criteria.segment_id == segment_id).all()
 
             data = {'Male': [], 'Female': []}
@@ -289,9 +271,8 @@ class PageantService:
                     "scores": [],
                     "total": 0.0
                 }
-                
-                judge_totals = []
 
+                judge_totals = []
                 for j_id in judge_ids:
                     j_score = 0.0
                     for crit in criterias:
@@ -301,21 +282,15 @@ class PageantService:
                             Score.criteria_id == crit.id
                         ).scalar() or 0.0
                         j_score += (val * crit.weight)
-                    
+
                     judge_totals.append(round(j_score, 2))
-                
                 row['scores'] = judge_totals
-                
-                # Average of judges for this segment
+
                 if judge_totals:
-                    # Simple average of judges' scores
-                    # (Note: In some pageants, they drop hi/low, but here we just avg)
                     row['total'] = round(sum(judge_totals) / len(judge_totals), 2)
-                
+
                 if c.gender in data:
                     data[c.gender].append(row)
-
-            # Sort
             for gender in ['Male', 'Female']:
                 data[gender].sort(key=lambda x: x['total'], reverse=True)
                 for i, r in enumerate(data[gender]):
@@ -326,14 +301,12 @@ class PageantService:
                 'Male': data['Male'],
                 'Female': data['Female']
             }
-
+        
         finally:
             db.close()
 
-    # ... (Keep existing get_all_scores_detailed for raw dump if needed, or remove) ...
     def get_all_scores_detailed(self, event_id):
-        # Keep this for the "Score Sheet" if you still want raw data
-        # ... [Paste logic from previous] ...
+
         db = SessionLocal()
         try:
             results = db.query(
@@ -357,9 +330,6 @@ class PageantService:
         finally:
             db.close()
 
-    # ... (Keep Active Segment, Judge Progress, Elimination Logic - NO CHANGES) ...
-    # PASTE REST OF FILE from previous turns (set_active_segment, get_active_segment, mark_judge_finished, has_judge_finished, get_preliminary_rankings, activate_final_round)
-    
     # ---------------------------------------------------------
     # ACTIVE SEGMENT CONTROL
     # ---------------------------------------------------------
@@ -424,7 +394,9 @@ class PageantService:
         finally:
             db.close()
 
+    # ---------------------------------------------------------
     # ELIMINATION ENGINE
+    # ---------------------------------------------------------
     def get_preliminary_rankings(self, event_id):
         db = SessionLocal()
         results = {'Male': [], 'Female': []}
@@ -444,7 +416,7 @@ class PageantService:
                         segment_score += (avg * crit.weight)
                     total_score += (segment_score * s.percentage_weight)
 
-                    entry = {"contestant": c, "score": round(total_score, 2)}
+                entry = {"contestant": c, "score": round(total_score, 2)}
                 if c.gender in results:
                     results[c.gender].append(entry)
 
@@ -478,7 +450,7 @@ class PageantService:
                 else:
                     c.status = 'Eliminated'
                     eliminated.append(f"{c.name} (Female)")
-                
+
             segments = db.query(Segment).filter(Segment.event_id == event_id).all()
             for s in segments:
                 s.is_active = (s.id == segment_id)
