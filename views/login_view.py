@@ -1,268 +1,18 @@
 """
-I need you to build the Login Screen using Flet. 
-It needs a Username field, a Password field (masked), and a 'Login' button. When the button is clicked, 
-it should check if the fields are empty. If not, print 'Attempting login...' to the console. 
-Don't worry about the database connection yet; I will wire that up.
-
-We will stick to Standard Login first to ensure the core tabulation works. 
-If we have time in the final week, we will add the Google Login button as an enhancement.
+Login Screen using Flet - Ultra Clean Version
 """
 
 import flet as ft
 from services.auth_service import AuthService
+from components.dialogs import create_header
 
 def LoginView(page: ft.Page, on_login_success_callback):
     auth = AuthService()
     page.bgcolor = ft.Colors.WHITE
-
-    # VERY IMPORTANT so your local PNG loads
     page.assets_dir = "assets"
 
-    # ---------------------- ABOUT DIALOG ----------------------
-    def about_clicked(e):
-        print("ABOUT clicked")
-        
-        # Team member cards
-        def create_member_card(name, position, section, image_path="placeholder.png"):
-            return ft.Container(
-                width=200,
-                padding=15,
-                bgcolor=ft.Colors.WHITE,
-                border_radius=10,
-                border=ft.border.all(1, ft.Colors.GREY_300),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=8,
-                    controls=[
-                        # Placeholder image frame
-                        ft.Container(
-                            width=120,
-                            height=120,
-                            border_radius=60,
-                            bgcolor=ft.Colors.GREY_200,
-                            border=ft.border.all(2, ft.Colors.BLUE_300),
-                            content=ft.Image(
-                                src=image_path,
-                                width=120,
-                                height=120,
-                                fit=ft.ImageFit.COVER,
-                                border_radius=60,
-                            )
-                        ),
-                        ft.Text(name, size=16, weight="bold", color=ft.Colors.BLACK),
-                        ft.Text(position, size=13, color=ft.Colors.BLUE_700, italic=True),
-                        ft.Text(section, size=12, color=ft.Colors.GREY_700),
-                    ]
-                )
-            )
-        
-        about_dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("About JUDGEMENOT", size=24, weight="bold"),
-            content=ft.Container(
-                width=700,
-                content=ft.Column(
-                    spacing=20,
-                    scroll=ft.ScrollMode.AUTO,
-                    controls=[
-                        # Team Members Section
-                        ft.Container(
-                            content=ft.Text("Our Team", size=18, weight="bold", color=ft.Colors.BLACK),
-                            alignment=ft.alignment.center,
-                        ),
-                        ft.Container(
-                            alignment=ft.alignment.center,
-                            content=ft.Row(
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                spacing=20,
-                                controls=[
-                                # Replace these with your actual team member info
-                                create_member_card(
-                                    "Elmskie", 
-                                    "Project Lead", 
-                                    "BSCS 3A",
-                                    "doge1.jpg"
-                                ),
-                                create_member_card(
-                                    "Sijay", 
-                                    "Developer", 
-                                    "BSCS 3A",
-                                    "doge2.jpg"
-                                ),
-                                create_member_card(
-                                    "Rv", 
-                                    "Designer", 
-                                    "BSCS 3A",
-                                    "doge3.jpg"
-                                ),
-                            ]
-                        ),
-                        ),
-                        
-                        ft.Divider(height=1, color=ft.Colors.GREY_300),
-                        
-                        # Project Description Section
-                        ft.Container(
-                            content=ft.Text("Our Mission", size=18, weight="bold", color=ft.Colors.BLACK),
-                            alignment=ft.alignment.center,
-                        ),
-                        ft.Text(
-                            "Judgemenot is a tabulation system designed to promote transparency and fairness. "
-                            "It allows users to view scores and results in real time, ensuring that all participants can track updates instantly. "
-                            "Our platform is intuitive and user-friendly, providing a clear and accurate visualization of scores while maintaining integrity and reliability.",
-                            size=14,
-                            color=ft.Colors.BLACK87,
-                        ),
-                    ]
-                )
-            ),
-            actions=[
-                ft.TextButton("Close", on_click=lambda e: close_dialog(about_dialog))
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        
-        page.overlay.append(about_dialog)
-        about_dialog.open = True
-        page.update()
-
-    # ---------------------- CONTACT DIALOG ----------------------
-    def contact_clicked(e):
-        print("CONTACT clicked")
-        
-        def create_contact_item(icon, title, value, color=ft.Colors.BLUE_700):
-            return ft.Container(
-                padding=15,
-                bgcolor=ft.Colors.BLUE_50,
-                border_radius=8,
-                content=ft.Row(
-                    spacing=15,
-                    controls=[
-                        ft.Icon(icon, color=color, size=28),
-                        ft.Column(
-                            spacing=2,
-                            controls=[
-                                ft.Text(title, size=12, color=ft.Colors.GREY_700, weight="bold"),
-                                ft.Text(value, size=14, color=ft.Colors.BLACK, selectable=True),
-                            ]
-                        )
-                    ]
-                )
-            )
-        
-        contact_dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Contact Us", size=24, weight="bold"),
-            content=ft.Container(
-                width=500,
-                content=ft.Column(
-                    spacing=15,
-                    controls=[
-                        ft.Text(
-                            "Get in touch with the JUDGEMENOT team. We're here to help!",
-                            size=14,
-                            color=ft.Colors.GREY_700,
-                        ),
-                        
-                        ft.Divider(height=1, color=ft.Colors.GREY_300),
-                        
-                        # Contact Information
-                        create_contact_item(
-                            ft.Icons.EMAIL,
-                            "Email",
-                            "judgemenot.team@cspc.edu.ph",
-                            ft.Colors.BLUE_700
-                        ),
-                        
-                        create_contact_item(
-                            ft.Icons.PHONE,
-                            "Phone",
-                            "+63 123 456 7890",
-                            ft.Colors.GREEN_700
-                        ),
-                        
-                        create_contact_item(
-                            ft.Icons.LOCATION_ON,
-                            "Office Address",
-                            "CSPC Campus, Nabua, Camarines Sur",
-                            ft.Colors.RED_700
-                        ),
-                        
-                        create_contact_item(
-                            ft.Icons.SCHEDULE,
-                            "Office Hours",
-                            "Monday - Friday, 8:00 AM - 5:00 PM",
-                            ft.Colors.ORANGE_700
-                        ),
-                        
-                        ft.Divider(height=1, color=ft.Colors.GREY_300),
-                        
-                        ft.Text(
-                            "For technical support or inquiries about the system, please don't hesitate to reach out.",
-                            size=12,
-                            color=ft.Colors.GREY_600,
-                            italic=True,
-                        ),
-                    ]
-                )
-            ),
-            actions=[
-                ft.TextButton("Close", on_click=lambda e: close_dialog(contact_dialog))
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        
-        page.overlay.append(contact_dialog)
-        contact_dialog.open = True
-        page.update()
-
-    # ---------------------- HELPER FUNCTION ----------------------
-    def close_dialog(dialog):
-        dialog.open = False
-        page.update()
-
-    # ---------------------- HEADER BAR ----------------------
-    # ---- CIRCULAR ROUNDED HAMMER LOGO ----
-    logo = ft.Container(
-        width=45,
-        height=45,
-        border_radius=50,
-        bgcolor="transparent",
-        border=ft.border.all(2, ft.Colors.BLACK),
-        padding=5,
-        content=ft.Image(
-            src="hammer.png",
-            fit=ft.ImageFit.CONTAIN
-        )
-    )
-
-    header_left = ft.Row(
-        spacing=10,
-        controls=[
-            logo,
-            ft.Text("JUDGEMENOT", size=22, weight="bold", color=ft.Colors.BLACK),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    header_right = ft.Row(
-        spacing=40,
-        controls=[
-            ft.TextButton("ABOUT", style=ft.ButtonStyle(color=ft.Colors.BLACK), on_click=about_clicked),
-            ft.TextButton("CONTACT", style=ft.ButtonStyle(color=ft.Colors.BLACK), on_click=contact_clicked),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    header = ft.Container(
-        height=75,
-        padding=ft.padding.symmetric(horizontal=50),
-        bgcolor="#80C1FF",
-        content=ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            controls=[header_left, header_right],
-        )
-    )
+    # ---------------------- HEADER (REUSABLE) ----------------------
+    header = create_header(page)
 
     # ---------------------- INPUT FIELDS ----------------------
     user_input = ft.TextField(
@@ -288,6 +38,23 @@ def LoginView(page: ft.Page, on_login_success_callback):
     )
 
     error_text = ft.Text("", color="red", size=12)
+
+    # ---------------------- CLICKABLE HANDLERS ----------------------
+    def forgot_password_clicked(e):
+        """Handle forgot password - redirect to forgot password page"""
+        print("Navigating to forgot password page...")
+        page.go("/forgot-password")  # You'll need to create this route
+
+    def signup_clicked(e):
+        """Handle sign up - redirect to signup page"""
+        print("Navigating to signup page...")
+        page.go("/signup")  # You'll need to create this route
+
+    def google_login_clicked(e):
+        """Handle Google/CSPC login"""
+        print("CSPC Mail login clicked...")
+        # Add your Google OAuth logic here
+        page.open(ft.SnackBar(ft.Text("Google login coming soon!"), bgcolor=ft.Colors.BLUE))
 
     # ---------------------- LOGIN CLICK ----------------------
     def login_clicked(e):
@@ -315,43 +82,55 @@ def LoginView(page: ft.Page, on_login_success_callback):
     # ---------------------- LOGIN BOX ----------------------
     login_box = ft.Container(
         width=650,
-        height=480,
         padding=30,
         bgcolor="#C9E4FF",
         border_radius=20,
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=12,
+            scroll=ft.ScrollMode.AUTO,  # Enable scrolling if content overflows
             controls=[
                 ft.Text("Welcome Back!", size=32, weight="bold", color=ft.Colors.BLACK),
 
                 user_input,
                 pass_input,
 
-                ft.Text(
+                # Clickable Forgot Password Link
+                ft.TextButton(
                     "Forgotten your username or password?",
-                    size=12,
-                    color=ft.Colors.BLUE_700,
+                    style=ft.ButtonStyle(color=ft.Colors.BLUE_700),
+                    on_click=forgot_password_clicked,
                 ),
 
                 error_text,
 
-                ft.Container(
+                # Login Button - Uses ElevatedButton for better click handling
+                ft.ElevatedButton(
+                    "Login",
                     width=160,
                     height=42,
-                    border_radius=30,
                     bgcolor="#64AEFF",
-                    alignment=ft.alignment.center,
+                    color=ft.Colors.WHITE,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=30),
+                    ),
                     on_click=login_clicked,
-                    content=ft.Text("Login", color=ft.Colors.WHITE, size=16, weight="bold"),
                 ),
 
+                # Clickable Sign Up Link
                 ft.Row(
                     spacing=5,
                     alignment=ft.MainAxisAlignment.CENTER,
                     controls=[
                         ft.Text("Need an account?", size=12),
-                        ft.Text("Sign up", size=12, color=ft.Colors.BLUE_700, weight="bold"),
+                        ft.TextButton(
+                            "Sign up",
+                            style=ft.ButtonStyle(
+                                color=ft.Colors.BLUE_700,
+                                padding=0,
+                            ),
+                            on_click=signup_clicked,
+                        ),
                     ],
                 ),
 
@@ -364,13 +143,8 @@ def LoginView(page: ft.Page, on_login_success_callback):
 
                 ft.Text("Log in using your account on:", size=12, color=ft.Colors.BLACK),
 
-                ft.Container(
-                    width=320,
-                    height=45,
-                    border_radius=8,
-                    bgcolor=ft.Colors.WHITE,
-                    border=ft.border.all(1, ft.Colors.GREY_300),
-                    alignment=ft.alignment.center,
+                # Clickable CSPC Mail Button - Better click handling
+                ft.ElevatedButton(
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=10,
@@ -383,6 +157,15 @@ def LoginView(page: ft.Page, on_login_success_callback):
                             ft.Text("CSPC Mail", size=14, color=ft.Colors.BLACK),
                         ],
                     ),
+                    width=320,
+                    height=45,
+                    bgcolor=ft.Colors.WHITE,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                        side=ft.BorderSide(1, ft.Colors.GREY_300),
+                        overlay_color=ft.Colors.BLUE_50,  # Hover effect
+                    ),
+                    on_click=google_login_clicked,
                 ),
             ],
         )
