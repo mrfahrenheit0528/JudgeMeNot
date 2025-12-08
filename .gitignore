@@ -3,3 +3,4 @@ __pycache__
 .env
 assets/uploads/
 repomix-output.xml
+seed.py
