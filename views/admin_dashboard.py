@@ -48,7 +48,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     # ---------------------------------------------------------
     # 3. GLOBAL DIALOGS
     # ---------------------------------------------------------
-
+    
     # --- ADD USER ---
     new_user_name = ft.TextField(label="Full Name")
     new_user_user = ft.TextField(label="Username")
@@ -66,14 +66,14 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             page.open(ft.SnackBar(ft.Text("User Added!"), bgcolor=ft.Colors.GREEN)); page.close(user_dialog); load_users_view()
         else: 
             page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED))
-
+    
     user_dialog = ft.AlertDialog(title=ft.Text("Add New User"), content=ft.Column([new_user_name, new_user_user, new_user_pass, new_user_role], height=300, width=400), actions=[ft.TextButton("Save", on_click=save_user)])
     def open_add_user_dialog(e): new_user_name.value = ""; new_user_user.value = ""; new_user_pass.value = ""; page.open(user_dialog)
 
     # --- ADD EVENT ---
     new_event_name = ft.TextField(label="Event Name")
     new_event_type = ft.Dropdown(label="Event Type", options=[ft.dropdown.Option("Pageant"), ft.dropdown.Option("QuizBee")], value="Pageant")
-
+    
     def save_event(e):
         if not new_event_name.value or not new_event_type.value: 
             page.open(ft.SnackBar(ft.Text("Please fill all fields"), bgcolor=ft.Colors.RED)); return
@@ -82,7 +82,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             page.open(ft.SnackBar(ft.Text("Event Created!"), bgcolor=ft.Colors.GREEN)); page.close(event_dialog); load_events_view() 
         else: 
             page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor=ft.Colors.RED))
-
+            
     event_dialog = ft.AlertDialog(title=ft.Text("Create New Event"), content=ft.Column([new_event_name, new_event_type], height=150, width=400), actions=[ft.TextButton("Create", on_click=save_event)])
     def open_add_event_dialog(e): new_event_name.value = ""; page.open(event_dialog)
 
@@ -93,7 +93,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
     # --- USERS VIEW ---
     def load_users_view():
         users = admin_service.get_all_users()
-
+        
         # --- DELETE LOGIC (This was missing!) ---
         def open_delete_dialog(e):
             user_id = e.control.data
@@ -103,7 +103,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
                 page.open(ft.SnackBar(ft.Text(msg), bgcolor=color))
                 page.close(delete_dialog)
                 load_users_view()
-
+            
             delete_dialog = ft.AlertDialog(
                 title=ft.Text("Delete User?"), 
                 content=ft.Text("This action cannot be undone."), 
@@ -123,13 +123,26 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             ft.dropdown.Option("Judge"), ft.dropdown.Option("Tabulator"), 
             ft.dropdown.Option("AdminViewer"), ft.dropdown.Option("Admin")
         ])
-        edit_is_pending = ft.Switch(label="Pending Approval")
-        edit_is_active = ft.Switch(label="Account Active")
+        
+        # --- CONSOLIDATED TOGGLE ---
+        # User requested 1 button. 
+        # ON = Active (Approved)
+        # OFF = Inactive (Disabled/Pending)
+        edit_is_active_toggle = ft.Switch(label="Account Active & Approved", active_color="green")
 
         def save_edit_user(e):
-            # FIXED: Now passes edit_id_tracker.value
             if not edit_id_tracker.value:
                 page.open(ft.SnackBar(ft.Text("Error: User ID missing"), bgcolor=ft.Colors.RED)); return
+
+            # Calculate states based on the single toggle
+            if edit_is_active_toggle.value:
+                # If toggled ON -> Approved and Active
+                final_is_pending = False
+                final_is_active = True
+            else:
+                # If toggled OFF -> Inactive (Disabled)
+                final_is_pending = False
+                final_is_active = False
 
             success, msg = admin_service.update_user(
                 current_admin_id,
@@ -138,8 +151,8 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
                 edit_user.value, 
                 edit_role.value, 
                 edit_pass.value if edit_pass.value else None,
-                edit_is_pending.value,
-                edit_is_active.value
+                final_is_pending,
+                final_is_active
             )
             if success:
                 page.open(ft.SnackBar(ft.Text("User Updated Successfully!"), bgcolor=ft.Colors.GREEN))
@@ -150,7 +163,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
 
         edit_dialog = ft.AlertDialog(
             title=ft.Text("Edit User"),
-            content=ft.Column([edit_name, edit_user, edit_role, edit_is_pending, edit_is_active, edit_pass], height=400, width=400, scroll="auto"),
+            content=ft.Column([edit_name, edit_user, edit_role, edit_is_active_toggle, edit_pass], height=400, width=400, scroll="auto"),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda _: page.close(edit_dialog)),
                 ft.ElevatedButton("Update", on_click=save_edit_user)
@@ -161,13 +174,16 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             u_id = e.control.data
             target = next((u for u in users if u.id == u_id), None)
             if target:
-                # FIXED: Set the ID tracker!
                 edit_id_tracker.value = str(target.id) 
                 edit_name.value = target.name
                 edit_user.value = target.username
                 edit_role.value = target.role
-                edit_is_pending.value = target.is_pending
-                edit_is_active.value = target.is_active
+                
+                # Set Toggle State
+                # It is ON only if user is Active AND Not Pending
+                is_fully_active = target.is_active and not target.is_pending
+                edit_is_active_toggle.value = is_fully_active
+                
                 edit_pass.value = "" 
                 page.open(edit_dialog)
 
@@ -175,16 +191,17 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
         TABLE_WIDTH = 900
         table_rows = []
         for u in users:
-            # Status Indicator
-            if u.is_pending:
+            # Status Indicator Logic
+            if not u.is_active:
+                status_icon = ft.Icon(ft.Icons.BLOCK, color="red", tooltip="Inactive/Disabled")
+            elif u.is_pending:
                 status_icon = ft.Icon(ft.Icons.WARNING, color="orange", tooltip="Pending Approval")
             else:
                 status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color="green", tooltip="Active")
 
             action_btn = ft.TextButton("Edit", data=u.id, icon=ft.Icons.EDIT, style=ft.ButtonStyle(color=ft.Colors.BLUE), on_click=open_edit_dialog)
-            # This calls the now-defined open_delete_dialog
             delete_icon = ft.IconButton(icon=ft.Icons.DELETE, icon_color=ft.Colors.RED, data=u.id, on_click=open_delete_dialog)
-
+            
             row = ft.Container(
                 width=TABLE_WIDTH, bgcolor=ft.Colors.WHITE, border_radius=8, padding=10, margin=ft.margin.only(bottom=8), 
                 shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.GREY_300), 
@@ -197,7 +214,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
                 ])
             )
             table_rows.append(row)
-
+        
         table_header = ft.Container(
             width=TABLE_WIDTH, bgcolor=ft.Colors.BLUE_100, padding=10, border_radius=8, 
             content=ft.Row([
@@ -238,7 +255,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
             bg_img = "pageant.png" if e.event_type == "Pageant" else "quiz.png"
             icon = ft.Icons.WOMAN if e.event_type == "Pageant" else ft.Icons.LIGHTBULB
             col = ft.Colors.WHITE
-
+            
             if e.status == "Active":
                 action_icon = ft.IconButton(icon=ft.Icons.STOP_CIRCLE, icon_color="red", tooltip="End Event", data=e.id, on_click=lambda x: toggle_event_status(x, "Ended"))
                 status_color = ft.Colors.GREEN_400
@@ -259,7 +276,7 @@ def AdminDashboardView(page: ft.Page, on_logout_callback):
                     ft.Row([ft.ElevatedButton("Manage", data=e.id, on_click=lambda ev: page.go(f"/admin/event/{ev.control.data}")), action_icon], spacing=10)
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
             )
-
+            
             events_list.controls.append(
                 ft.Container(height=100, border_radius=10, image=ft.DecorationImage(src=bg_img, fit=ft.ImageFit.COVER, opacity=0.8), padding=0, clip_behavior=ft.ClipBehavior.HARD_EDGE, content=card_content, shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.GREY_400))
             )

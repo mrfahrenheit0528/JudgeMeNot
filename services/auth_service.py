@@ -13,10 +13,10 @@ class AuthService:
         try:
             # 1. Find the user
             user = db.query(User).filter(User.username == username).first()
-
+            
             if not user:
                 return None
-
+            
             # 2. Check Password (using bcrypt)
             if bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
                 if not user.is_active:

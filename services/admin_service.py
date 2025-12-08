@@ -48,7 +48,7 @@ class AdminService:
             )
             db.add(new_user)
             db.commit()
-
+            
             self.log_action(admin_id, "CREATE_USER", f"Created user '{username}' as {role}")
             return True, "User created successfully."
         except Exception as e:
@@ -65,14 +65,14 @@ class AdminService:
                 
             user = db.query(User).get(user_id)
             if not user: return False, "User not found"
-
+            
             old_role = user.role
             user.name = name
             user.username = username
             user.role = role
             user.is_pending = is_pending
             user.is_active = is_active
-
+            
             details = f"Updated profile for '{username}'"
             if old_role != role:
                 details += f" (Role: {old_role}->{role})"
@@ -83,7 +83,7 @@ class AdminService:
                 salt = bcrypt.gensalt()
                 user.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
                 details += " [Password Changed]"
-
+                
             db.commit()
             self.log_action(admin_id, "UPDATE_USER", details)
             return True, "User updated successfully."
@@ -97,11 +97,11 @@ class AdminService:
         try:
             user = db.query(User).get(user_id)
             if not user: return False, "User not found"
-
+            
             username = user.username
             db.delete(user)
             db.commit()
-
+            
             self.log_action(admin_id, "DELETE_USER", f"Deleted user '{username}'")
             return True, "User deleted successfully."
         except Exception as e:

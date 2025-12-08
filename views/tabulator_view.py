@@ -5,7 +5,7 @@ from services.quiz_service import QuizService
 from services.event_service import EventService
 from services.contestant_service import ContestantService
 from core.database import SessionLocal
-from models.all_models import Contestant, Segment, Score
+from models.all_models import Contestant, Segment, Score, Event
 from components.dialogs import show_about_dialog, show_contact_dialog
 
 def TabulatorView(page: ft.Page, on_logout_callback):
@@ -27,6 +27,9 @@ def TabulatorView(page: ft.Page, on_logout_callback):
     last_question_count = 0
     is_polling = True
     
+    # Track available events to prevent UI flicker
+    cached_available_event_ids = set()
+    
     # Local cache to store selections before saving
     answers_cache = {} 
     
@@ -35,7 +38,32 @@ def TabulatorView(page: ft.Page, on_logout_callback):
     score_list = ft.Column(scroll="adaptive", expand=True, spacing=10)
 
     # ---------------------------------------------------------
-    # 1. HEADER (Matched to JudgeView)
+    # 1. LOGIC: EVENT SWITCHING
+    # ---------------------------------------------------------
+    def switch_event_click(e):
+        nonlocal current_event, active_round, assigned_contestant, last_round_id, cached_available_event_ids
+        current_event = None
+        active_round = None
+        assigned_contestant = None
+        last_round_id = None
+        
+        # FIX: Reset the cache so the menu knows it needs to re-render
+        cached_available_event_ids = set() 
+        
+        # Clearing the container will trigger the "Select Event" view on next poll
+        # We use a Column with center alignment to prevent the "tall loading" issue
+        main_container.content = ft.Column(
+            controls=[
+                ft.ProgressRing(),
+                ft.Text("Loading...", color="grey")
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER
+        )
+        page.update()
+
+    # ---------------------------------------------------------
+    # 2. HEADER
     # ---------------------------------------------------------
     header = ft.Container(
         content=ft.Row([
@@ -47,6 +75,9 @@ def TabulatorView(page: ft.Page, on_logout_callback):
                 ], spacing=2)
             ]),
             ft.Row([
+                ft.TextButton("Switch Event", icon=ft.Icons.SWAP_HORIZ, style=ft.ButtonStyle(color=ft.Colors.WHITE), on_click=switch_event_click, visible=True), # Always visible if logged in
+                ft.VerticalDivider(width=10, color="white24"),
+                ft.TextButton("Leaderboard", icon=ft.Icons.EMOJI_EVENTS, style=ft.ButtonStyle(color=ft.Colors.WHITE), on_click=lambda e: page.go("/leaderboard")),
                 ft.TextButton("About", style=ft.ButtonStyle(color=ft.Colors.WHITE), on_click=lambda e: show_about_dialog(page)),
                 ft.TextButton("Contact", style=ft.ButtonStyle(color=ft.Colors.WHITE), on_click=lambda e: show_contact_dialog(page)),
                 ft.VerticalDivider(width=10, color="white24"),
@@ -63,49 +94,82 @@ def TabulatorView(page: ft.Page, on_logout_callback):
         on_logout_callback(e)
 
     # ---------------------------------------------------------
-    # 2. DATA LOADING & POLLING
+    # 3. DATA LOADING & POLLING
     # ---------------------------------------------------------
     def load_dashboard():
-        nonlocal current_event, active_round, assigned_contestant, last_round_id, last_question_count
+        nonlocal current_event, active_round, assigned_contestant, last_round_id, last_question_count, cached_available_event_ids
         
-        # Only show spinner on first load
+        # --- MODE A: NO EVENT SELECTED (Show Menu) ---
         if not current_event:
-            main_container.content = ft.ProgressRing()
-            page.update()
+            db = SessionLocal()
+            try:
+                # 1. Find all active Quiz Bee events
+                active_events = db.query(Event).filter(Event.status == "Active", Event.event_type == "QuizBee").all()
+                
+                # 2. Filter: Only show events where this tabulator is assigned
+                my_events = []
+                for ev in active_events:
+                    # Check if there is a contestant in this event assigned to this tabulator
+                    assignment = db.query(Contestant).filter(
+                        Contestant.event_id == ev.id,
+                        Contestant.assigned_tabulator_id == tabulator_id
+                    ).first()
+                    
+                    if assignment:
+                        my_events.append(ev)
+                
+                # Check for changes to prevent flickering
+                current_ids = {e.id for e in my_events}
+                if current_ids != cached_available_event_ids:
+                    cached_available_event_ids = current_ids
+                    render_event_selector(my_events)
+                
+                # AUTO-SELECT OPTIMIZATION: If only 1 event, just pick it
+                # Logic Update: Only auto-select if we haven't cached anything yet (first load).
+                # If we have cached IDs (meaning we just came from switch_event_click reset), don't auto-jump immediately if we want to show menu.
+                # Actually, to keep it simple: If there is only 1 event, user is "locked" to it unless they have >1.
+                # But if they click "Switch" and there's only 1, it will just reload that 1. 
+                # That is acceptable behavior for 1 event.
+                if len(my_events) == 1 and not cached_available_event_ids: 
+                     pass 
 
-        events = event_service.get_active_events("QuizBee")
-        if not events:
-            show_error("No Active Quiz Bee Event found."); return
+            except Exception as e:
+                print(f"Error fetching events: {e}")
+            finally:
+                db.close()
+            return
+
+        # --- MODE B: EVENT SELECTED (Show Scoring) ---
         
-        current_event = events[0] 
-
+        # 1. Check Active Round
         active_round = event_service.get_active_segment(current_event.id)
         if not active_round:
             show_wait_screen("Waiting for Admin to start a round...", force_refresh=False)
             last_round_id = None
             return
 
-        db = SessionLocal()
-        assigned_contestant = db.query(Contestant).filter(
-            Contestant.event_id == current_event.id,
-            Contestant.assigned_tabulator_id == tabulator_id
-        ).first()
+        # 2. Check Assignment/School for this specific Event
+        if not assigned_contestant:
+            db = SessionLocal()
+            assigned_contestant = db.query(Contestant).filter(
+                Contestant.event_id == current_event.id,
+                Contestant.assigned_tabulator_id == tabulator_id
+            ).first()
+            db.close()
         
         if not assigned_contestant:
-            db.close(); show_error(f"You are not assigned to any school/participant in '{current_event.name}'."); return
+            show_error(f"You are not assigned to any school/participant in '{current_event.name}'.")
+            return
 
-        # Check Participation
+        # 3. Check Participation in current round
         if active_round.participating_school_ids:
             allowed_ids = [int(x) for x in active_round.participating_school_ids.split(",") if x.strip()]
             if assigned_contestant.id not in allowed_ids:
-                db.close()
                 show_wait_screen(f"Your school ({assigned_contestant.name}) is not participating in: {active_round.name}", force_refresh=False)
                 last_round_id = None # Reset state so we re-check later
                 return
 
-        db.close()
-
-        # Check if UI update is needed (Round Changed or Questions Added)
+        # 4. Update UI if needed
         if active_round.id != last_round_id or active_round.total_questions != last_question_count:
             render_scoring_ui()
             last_round_id = active_round.id
@@ -116,18 +180,75 @@ def TabulatorView(page: ft.Page, on_logout_callback):
             if page:
                 try:
                     load_dashboard()
-                except: pass
+                except Exception as e: 
+                    print(f"Polling error: {e}")
             time.sleep(2)
+
+    # ---------------------------------------------------------
+    # 4. UI RENDERERS
+    # ---------------------------------------------------------
+    def render_event_selector(events):
+        def select_event(e):
+            nonlocal current_event
+            current_event = e.control.data
+            # Centered loading screen
+            main_container.content = ft.Column(
+                controls=[
+                    ft.ProgressRing(),
+                    ft.Text("Loading...", color="grey")
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER
+            )
+            page.update()
+            # The next poll tick will pick up 'current_event' and load the round
+
+        if not events:
+            main_container.content = ft.Column([
+                ft.Icon(ft.Icons.EVENT_BUSY, size=60, color="grey"),
+                ft.Text("No active Quiz Bee events found for you.", size=18, color="grey")
+            ], alignment="center", horizontal_alignment="center")
+        else:
+            cards = []
+            for ev in events:
+                cards.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.Icons.LIGHTBULB, size=40, color="orange"),
+                            ft.Text(ev.name, weight="bold", size=16, text_align="center"),
+                            ft.ElevatedButton("Enter Event", data=ev, on_click=select_event)
+                        ], alignment="center", horizontal_alignment="center"),
+                        bgcolor="white",
+                        padding=20,
+                        border_radius=10,
+                        shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.GREY_300),
+                        width=200,
+                        height=200,
+                        alignment=ft.alignment.center
+                    )
+                )
+            
+            main_container.content = ft.Column([
+                ft.Text("Select Active Event", size=24, weight="bold"),
+                ft.Text("You are assigned as a Tabulator for these events:", color="grey"),
+                ft.Divider(),
+                ft.Row(cards, wrap=True, spacing=20, run_spacing=20, alignment="center")
+            ], horizontal_alignment="center")
+        
+        page.update()
 
     def show_error(msg):
         main_container.content = ft.Column([
             ft.Icon(ft.Icons.WARNING_AMBER, size=60, color="orange"),
             ft.Text(msg, size=18, text_align="center"),
-            ft.ElevatedButton("Retry", on_click=lambda e: load_dashboard())
+            ft.ElevatedButton("Retry / Back", on_click=switch_event_click)
         ], alignment="center", horizontal_alignment="center")
         page.update()
 
     def show_wait_screen(msg, force_refresh=True):
+        # Don't overwrite if it's already a wait screen with same msg to avoid flicker
+        # (Simplified check)
+        
         content = ft.Column([
             ft.Icon(ft.Icons.HOURGLASS_EMPTY, size=60, color="blue"),
             ft.Text("Please Wait", size=24, weight="bold"),
@@ -140,9 +261,6 @@ def TabulatorView(page: ft.Page, on_logout_callback):
         main_container.content = content
         page.update()
 
-    # ---------------------------------------------------------
-    # 3. SCORING UI
-    # ---------------------------------------------------------
     def render_scoring_ui():
         score_list.controls.clear()
         answers_cache.clear()

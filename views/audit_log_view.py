@@ -5,6 +5,7 @@ from services.admin_service import AdminService
 
 def AuditLogView(page: ft.Page, on_back_click=None):
     admin_service = AdminService()
+    
     # State for polling
     is_active = True
     
@@ -23,7 +24,7 @@ def AuditLogView(page: ft.Page, on_back_click=None):
         horizontal_lines=ft.border.BorderSide(1, "grey"),
         heading_row_color=ft.Colors.BLUE_50
     )
-
+    
     last_updated_text = ft.Text("Loading...", size=12, color="grey", italic=True)
 
     def fetch_logs():
@@ -105,8 +106,13 @@ def AuditLogView(page: ft.Page, on_back_click=None):
                 ft.Column(
                     controls=[data_table],
                     expand=True,
-                    )
+                    scroll="adaptive"
+                )
             ],
             expand=True
-            ),
+        ),
+        # IMPORTANT: When this control is removed from the page (e.g. navigation), 
+        # we need to ensure polling stops. 
+        # Flet doesn't have a perfect "on_dismount" hook for functions, 
+        # but the 'on_back_click' wrapper handles the manual exit.
     )

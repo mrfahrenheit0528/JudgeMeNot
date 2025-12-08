@@ -1,6 +1,7 @@
 import flet as ft
 from core.database import SessionLocal
 from models.all_models import Event
+
 # Import the decoupled views
 from views.config.pageant_config_view import PageantConfigView
 from views.config.quiz_config_view import QuizConfigView

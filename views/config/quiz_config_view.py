@@ -22,6 +22,9 @@ def QuizConfigView(page: ft.Page, event_id: int):
     editing_round_id = None 
     editing_contestant_id = None 
     is_polling = False
+    
+    # Global component references
+    eval_btn_ref = ft.Ref[ft.ElevatedButton]() # Reference to the Evaluate button
 
     # ---------------------------------------------------------
     # 1. CONFIGURATION TAB (Rounds)
@@ -83,14 +86,12 @@ def QuizConfigView(page: ft.Page, event_id: int):
         config_container.controls.append(ft.Row([ft.Text("Quiz Rounds Sequence", size=20, weight="bold"), ft.ElevatedButton("Add Round", icon=ft.Icons.ADD, on_click=open_add_round_dialog)], alignment="spaceBetween"))
         db = SessionLocal(); rounds = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all(); db.close()
         for r in rounds:
-            card = ft.Card(content=ft.Container(padding=10, content=ft.Row([ft.Row([ft.Container(content=ft.Text(f"#{r.order_index}", color="white", weight="bold"), bgcolor="black", padding=10, border_radius=20), ft.Column([ft.Text(r.name, weight="bold"), ft.Text(f"Qualifiers: {r.qualifier_limit}")])]), ft.Row([ft.IconButton(icon=ft.Icons.EDIT, icon_color="blue", tooltip="Edit", data=r, on_click=open_edit_round_dialog), ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", tooltip="Delete", data=r.id, on_click=lambda e: delete_round(e.control.data)), ft.Switch(value=r.is_active, on_change=lambda e, s=r.id: toggle_round_active(s, e.control.value))])], alignment="spaceBetween")))
+            # REMOVED: ft.Switch(...) from the actions row
+            card = ft.Card(content=ft.Container(padding=10, bgcolor=ft.Colors.GREY_50, content=ft.Row([ft.Row([ft.Container(content=ft.Text(f"#{r.order_index}", color="white", weight="bold"), bgcolor="black", padding=10, border_radius=20), ft.Column([ft.Text(r.name, weight="bold"), ft.Text(f"Qualifiers: {r.qualifier_limit}")])]), ft.Row([ft.IconButton(icon=ft.Icons.EDIT, icon_color="blue", tooltip="Edit", data=r, on_click=open_edit_round_dialog), ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", tooltip="Delete", data=r.id, on_click=lambda e: delete_round(e.control.data))])], alignment="spaceBetween")))
             config_container.controls.append(card)
         page.update()
 
-    def toggle_round_active(seg_id, is_active):
-        if is_active: event_service.set_active_segment(event_id, seg_id)
-        else: event_service.set_active_segment(event_id, None)
-        refresh_config_tab()
+    # REMOVED: toggle_round_active helper function is no longer needed
 
     # ---------------------------------------------------------
     # 2. CONTESTANTS TAB
@@ -112,7 +113,9 @@ def QuizConfigView(page: ft.Page, event_id: int):
             if t.id not in used_ids or (cur_tab_id and t.id == int(cur_tab_id)):
                 options.append(ft.dropdown.Option(str(t.id), t.name))
         c_tab.options = options
-        c_tab.update()
+        # FIX: Check if control is on page before updating to avoid AssertionError
+        if c_tab.page:
+            c_tab.update()
 
     def save_c(e): 
         try: 
@@ -150,7 +153,7 @@ def QuizConfigView(page: ft.Page, event_id: int):
     def refresh_tabulation_tab():
         db = SessionLocal()
         active_seg = event_service.get_active_segment(event_id)
-
+        
         # Left Panel (Round Controls)
         left_controls = []
         rounds = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all()
@@ -163,36 +166,130 @@ def QuizConfigView(page: ft.Page, event_id: int):
             else:
                 action_area = ft.ElevatedButton(btn_text, bgcolor="white", color=btn_col, width=80, data=r.id, on_click=lambda e: toggle_round_from_control(e.control.data))
             left_controls.append(ft.Container(bgcolor=ft.Colors.BLUE_600 if is_active else "white", border_radius=8, padding=10, border=ft.border.all(1, "grey") if not is_active else None, content=ft.Row([ft.Column([ft.Text(r.name, color="white" if is_active else "black", weight="bold"), ft.Text(f"{r.total_questions} Qs", color="white70" if is_active else "grey", size=12)]), action_area], alignment="spaceBetween")))
-
+        
         # Right Panel (Live Stats)
         results = []
         score_mode_text = "CUMULATIVE SCORE"; score_mode_color = "black"
         is_clincher = (active_seg and "Clincher" in active_seg.name)
-
+        
+        # Get Participants
+        participants_data = quiz_service.get_participants_for_active_round(event_id, active_seg)
+        participants = participants_data['participants']
+        total_qs_in_round = active_seg.total_questions if active_seg else 0
+        
+        # Determine score mode and fetch scores
         if active_seg:
             should_reset = is_clincher or active_seg.is_final or "Final" in active_seg.name
             if should_reset:
                 score_mode_text = f"BACK TO ZERO ({active_seg.name})"; score_mode_color = "red"
                 results = quiz_service.get_live_scores(event_id, specific_round_id=active_seg.id)
-                if active_seg.participating_school_ids:
-                    p_ids = [int(x) for x in active_seg.participating_school_ids.split(",") if x.strip()]
-                    results = [r for r in results if r['contestant_id'] in p_ids]
             else:
                 results = quiz_service.get_live_scores(event_id)
         else:
             results = quiz_service.get_live_scores(event_id)
 
+        # Filter results to only show active participants in the current round scope
+        if participants_data['is_filtered']:
+            p_ids = [p['id'] for p in participants]
+            results = [r for r in results if r['contestant_id'] in p_ids]
+
+
+        # --- SCORING COMPLETION CHECK (NEW) ---
+        is_ready_to_advance = False
+        completion_status = quiz_service.check_scoring_completion(event_id, active_seg, participants, total_qs_in_round)
+        unsubmitted_count = len(completion_status['unsubmitted'])
+        
+        # Only allow advancing if:
+        # 1. We have an active segment
+        # 2. Everyone has submitted (unsubmitted_count == 0)
+        # 3. There are actual questions to answer (total_qs > 0)
+        # 4. There is a qualifier limit (otherwise, just show scores)
+        if active_seg and active_seg.qualifier_limit > 0 and unsubmitted_count == 0 and total_qs_in_round > 0:
+            is_ready_to_advance = True
+            
+        warning_msg = ft.Container(visible=False)
+        if active_seg and not is_ready_to_advance and total_qs_in_round > 0:
+            warning_msg = ft.Container(
+                content=ft.Text(f"⚠️ {unsubmitted_count} team(s) still incomplete. Cannot evaluate.", size=14, color="white", weight="bold"),
+                bgcolor=ft.Colors.RED_700, padding=10, border_radius=5, visible=True
+            )
+            
+        # --- TABLE CONSTRUCTION ---
         rows = []
         limit = active_seg.qualifier_limit if active_seg else 0
+        max_possible_score = total_qs_in_round * active_seg.points_per_question if active_seg else 100
+        
         for i, res in enumerate(results):
             rank = i+1
             color = ft.Colors.GREEN_50 if limit > 0 and rank <= limit else "white"
-            rows.append(ft.DataRow(color=color, cells=[ft.DataCell(ft.Text(str(rank))), ft.DataCell(ft.Text(res['name'])), ft.DataCell(ft.Text(str(res['total_score']), weight="bold"))]))
+            
+            # --- PROGRESS BAR (NEW) ---
+            # Find the participant info to get progress
+            p_info = next((p for p in participants if p['id'] == res['contestant_id']), None)
+            
+            completion_ratio = 0.0
+            status_icon = ft.Icon(ft.Icons.HOURGLASS_EMPTY, color="grey", size=16)
+            
+            if p_info and total_qs_in_round > 0:
+                completion_ratio = min(p_info.get('progress_count', 0) / total_qs_in_round, 1.0)
+                if p_info.get('is_complete'):
+                    status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color="green", size=16)
+                else:
+                    status_icon = ft.Icon(ft.Icons.PENDING, color="orange", size=16) 
+            elif total_qs_in_round == 0:
+                 completion_ratio = 1.0 # Unlimited/Manual mode
+                 status_icon = ft.Icon(ft.Icons.CHECK, color="grey", size=16)
 
-        table = ft.DataTable(columns=[ft.DataColumn(ft.Text("Rank")), ft.DataColumn(ft.Text("Name")), ft.DataColumn(ft.Text("Score"))], rows=rows, border=ft.border.all(1, "grey"), width=float("inf"))
-        eval_btn = ft.ElevatedButton("Evaluate & Advance", bgcolor="green", color="white", width=float("inf"), on_click=lambda e: evaluate_round())
+            progress_bar = ft.Column([
+                ft.ProgressBar(value=completion_ratio, color=ft.Colors.GREEN if completion_ratio == 1.0 else ft.Colors.BLUE, bgcolor=ft.Colors.GREY_200, width=100),
+                ft.Text(f"{int(completion_ratio*100)}%", size=10, color="grey")
+            ], spacing=2)
+            
+            rows.append(ft.DataRow(
+                color=color, 
+                cells=[
+                    ft.DataCell(ft.Text(str(rank))), 
+                    ft.DataCell(ft.Row([ft.Text(res['name']), status_icon], spacing=5)), # Name + Status
+                    ft.DataCell(ft.Text(str(res['total_score']), weight="bold")),
+                    ft.DataCell(progress_bar) # New Column
+                ]
+            ))
 
-        tabulation_container.content = ft.Row([ft.Container(content=ft.Column([ft.Text("Rounds", weight="bold"), ft.Column(left_controls, scroll="auto", expand=True)], expand=True), width=300, bgcolor=ft.Colors.GREY_50, padding=10), ft.VerticalDivider(), ft.Container(content=ft.Column([ft.Row([ft.Text(f"LIVE: {active_seg.name if active_seg else 'None'}", size=20, weight="bold"), ft.Chip(label=ft.Text(score_mode_text, color="white"), bgcolor=score_mode_color)], alignment="spaceBetween"), table, ft.Container(eval_btn, padding=10)], expand=True), expand=True)], expand=True)
+        table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Rank")), 
+                ft.DataColumn(ft.Text("Name")), 
+                ft.DataColumn(ft.Text("Score")),
+                ft.DataColumn(ft.Text("Progress")), # New Column Header
+            ], 
+            rows=rows, border=ft.border.all(1, "grey"), width=float("inf"))
+        
+        eval_btn = ft.ElevatedButton(
+            "Evaluate & Advance", 
+            ref=eval_btn_ref, # Attach ref
+            bgcolor=ft.Colors.GREEN, 
+            color="white", 
+            width=float("inf"), 
+            on_click=lambda e: evaluate_round(is_ready_to_advance),
+            disabled=not is_ready_to_advance # Control Button State
+        )
+        
+        # Assemble Right Panel
+        right_panel_content = ft.Column([
+            ft.Row([
+                ft.Text(f"LIVE: {active_seg.name if active_seg else 'None'}", size=20, weight="bold"), 
+                ft.Chip(label=ft.Text(score_mode_text, color="white"), bgcolor=score_mode_color)
+            ], alignment="spaceBetween"),
+            warning_msg, # Warning above the table
+            table, 
+            ft.Container(eval_btn, padding=10)
+        ], expand=True)
+
+        tabulation_container.content = ft.Row([
+            ft.Container(content=ft.Column([ft.Text("Rounds", weight="bold"), ft.Column(left_controls, scroll="auto", expand=True)], expand=True), width=300, bgcolor=ft.Colors.GREY_50, padding=10), 
+            ft.VerticalDivider(), 
+            ft.Container(content=right_panel_content, expand=True)
+        ], expand=True)
         db.close(); page.update()
 
     def toggle_round_from_control(seg_id):
@@ -209,38 +306,66 @@ def QuizConfigView(page: ft.Page, event_id: int):
     # ---------------------------------------------------------
     # EVALUATION LOGIC (DUAL-MODE CLINCHER)
     # ---------------------------------------------------------
-    def evaluate_round():
+    def evaluate_round(is_ready):
+        if not is_ready:
+             page.open(ft.SnackBar(ft.Text("All teams must submit scores before evaluation."), bgcolor="red"))
+             return
+             
         active_seg = event_service.get_active_segment(event_id)
         if not active_seg: return
         limit = active_seg.qualifier_limit
         if limit <= 0: page.open(ft.SnackBar(ft.Text("No limit set (Unlimited qualifiers)."), bgcolor="grey")); return
 
-        # 1. Fetch Results & Determine Mode
-        is_clincher = "Clincher" in active_seg.name
-        is_final_mode = is_clincher or active_seg.is_final or "Final" in active_seg.name
+        # -----------------------------------------------------
+        # STEP 1: Determine the "Genealogy" of this round
+        # Is this clincher part of a FINAL round chain?
+        # -----------------------------------------------------
+        db = SessionLocal()
+        
+        # Traverse up the related_segment_id to find the "Root Parent"
+        current_node = db.query(Segment).get(active_seg.id)
+        root_node = current_node
+        
+        while root_node.related_segment_id:
+            root_node = db.query(Segment).get(root_node.related_segment_id)
+        
+        # If the Root Parent is FINAL, then this whole chain enforces Unique Ranks
+        is_final_chain = root_node.is_final
+        
+        db.close()
 
-        # In Final Mode, scores are back-to-zero. In Normal, cumulative.
-        should_reset = is_final_mode
+        # -----------------------------------------------------
+        # STEP 2: Configure Scoring Mode
+        # All Clinchers (regardless of parent) and Final rounds are Back-to-Zero
+        # -----------------------------------------------------
+        is_clincher = "Clincher" in active_seg.name
+        should_reset = is_clincher or is_final_chain
+        
+        # Fetch Scores
         results = quiz_service.get_live_scores(event_id, specific_round_id=active_seg.id if should_reset else None)
         
-        # Apply filters if we are in a limited round
+        # Apply filters (if limited participants)
         if should_reset and active_seg.participating_school_ids:
              db = SessionLocal()
              p_ids = [int(x) for x in active_seg.participating_school_ids.split(",") if x.strip()]
              results = [r for r in results if r['contestant_id'] in p_ids]
              db.close()
 
-        # Only auto-qualify if it's NOT a final round. 
-        # In final rounds, we must resolve specific rank ties even if everyone "qualifies".
-        if len(results) <= limit and not is_final_mode: 
+        # Auto-Qualify check (Only for Prelims/Non-Finals)
+        if len(results) <= limit and not is_final_chain: 
             page.open(ft.SnackBar(ft.Text("All participants qualify automatically."), bgcolor="green")); return
 
         # -----------------------------------------------------
-        # MODE 1: NORMAL ROUND (Cumulative) -> Cutoff Clincher Only
+        # MODE 1: PRELIM / CUMULATIVE CHAIN (Cutoff Clincher Only)
+        # We only care about ties at the CUTOFF boundary (Rank N vs Rank N+1)
+        # Ties within the Top N are ALLOWED.
         # -----------------------------------------------------
-        if not is_final_mode:
-            # Check for ties ONLY at the cutoff boundary (Rank N vs Rank N+1)
-            # Array indices: limit-1 is Rank N, limit is Rank N+1
+        if not is_final_chain:
+            if len(results) < limit: 
+                show_advance_dialog(results, active_seg.id, is_event_end=False)
+                return
+                
+            # Array indices: limit-1 is Rank N (Last In), limit is Rank N+1 (First Out)
             last_in_score = results[limit-1]['total_score']
             first_out_score = results[limit]['total_score']
             
@@ -249,6 +374,16 @@ def QuizConfigView(page: ft.Page, event_id: int):
                 tied = [r for r in results if r['total_score'] == last_in_score]
                 clean_winners = [r for r in results if r['total_score'] > last_in_score]
                 spots_remaining = limit - len(clean_winners)
+
+                def execute_tie_break(e):
+                    page.close(dlg)
+                    # 1. Advance the clean winners
+                    clean_ids = [r['contestant_id'] for r in clean_winners]
+                    if clean_ids:
+                        perform_advance(active_seg.id, clean_ids)
+                    
+                    # 2. Trigger clincher for tied ones
+                    trigger_clincher_round(active_seg, tied, "Cutoff", spots_remaining)
                 
                 dlg = ft.AlertDialog(
                     title=ft.Text("Tie at Cutoff!"), 
@@ -262,64 +397,87 @@ def QuizConfigView(page: ft.Page, event_id: int):
                         ft.ElevatedButton(
                             "Create Cutoff Clincher", 
                             bgcolor="orange", color="white",
-                            on_click=lambda e: (page.close(dlg), trigger_clincher_round(active_seg, tied, f"Cutoff", spots_remaining))
+                            on_click=execute_tie_break
                         )
                     ]
                 )
                 page.open(dlg)
             else:
                 # Clean result (Event continues)
+                # Winners are simply the Top N.
                 show_advance_dialog(results[:limit], active_seg.id, is_event_end=False)
             return
 
         # -----------------------------------------------------
-        # MODE 2: FINAL/CLINCHER (Back-to-Zero) -> Recursive Rank Clincher
+        # MODE 2: FINAL CHAIN (Unique Rank Clincher)
+        # Every rank 1..Limit must be unique. No ties allowed at all.
         # -----------------------------------------------------
-        # Scan for ANY tie within the qualifying ranks (1 to Limit)
-        
         ties_found = [] 
         grouped_results = []
         for key, group in itertools.groupby(results, lambda x: x['total_score']):
             grouped_results.append((key, list(group)))
-
+        
         current_rank = 1
         for score, participants in grouped_results:
             count = len(participants)
-
-            # If this score group occupies any rank within the limit
+            
+            # Check for ties ONLY within the qualifying limit
             if current_rank <= limit:
                 if count > 1:
+                    # --- SUDDEN DEATH CHECK ---
+                    # If we are ALREADY in a clincher, and EVERYONE is still tied (Deadlock),
+                    # we should NOT spawn a new round. We should just add a question.
+                    # Logic: If the number of tied participants EQUALS the total results count, 
+                    # it means nobody got eliminated.
+                    is_deadlock = False
+                    if is_clincher and len(results) == count:
+                        is_deadlock = True
+
                     names = [p['name'] for p in participants]
-                    ties_found.append({
+                    
+                    tie_data = {
                         "rank": current_rank,
                         "score": score,
                         "participants": participants,
-                        "names": ", ".join(names)
-                    })
+                        "names": ", ".join(names),
+                        "is_deadlock": is_deadlock
+                    }
+                    ties_found.append(tie_data)
             current_rank += count
 
         if ties_found:
             tie_controls = []
             for t in ties_found:
+                # Logic to determine action button
+                if t['is_deadlock']:
+                    action_btn = ft.ElevatedButton(
+                        "Deadlock! Add +1 Question",
+                        bgcolor="red", color="white", height=30,
+                        on_click=lambda e: (page.close(dlg), add_clincher_question(active_seg.id))
+                    )
+                    status_text = ft.Text(f"DEADLOCK: All {len(t['participants'])} participants tied.", color="red", weight="bold")
+                else:
+                    action_btn = ft.ElevatedButton(
+                        f"Resolve Rank {t['rank']} (New Round)", 
+                        bgcolor="orange", color="white", height=30,
+                        data=t,
+                        on_click=lambda e, data=t: (page.close(dlg), trigger_clincher_round(active_seg, data['participants'], f"Rank {data['rank']}", 1))
+                    )
+                    status_text = ft.Text(f"Partial Tie for Rank {t['rank']} ({t['score']} pts)", weight="bold", color="orange")
+
                 tie_controls.append(ft.Container(
                     padding=10, bgcolor=ft.Colors.ORANGE_50, border=ft.border.all(1, "orange"), border_radius=5,
                     content=ft.Column([
-                        ft.Text(f"Tie for Rank {t['rank']} ({t['score']} pts)", weight="bold", color="red"),
+                        status_text,
                         ft.Text(f"{t['names']}", size=12),
-                        ft.ElevatedButton(
-                            f"Resolve Rank {t['rank']}", 
-                            bgcolor="orange", color="white", height=30,
-                            data=t,
-                            # For ranking ties, we usually fight for the Top 1 spot of that rank group
-                            on_click=lambda e, data=t: (page.close(dlg), trigger_clincher_round(active_seg, data['participants'], f"Rank {data['rank']}", 1))
-                        )
+                        action_btn
                     ])
                 ))
 
             dlg = ft.AlertDialog(
-                title=ft.Row([ft.Icon(ft.Icons.WARNING, color="red"), ft.Text("Ties Detected (Final/Clincher)!")]), 
+                title=ft.Row([ft.Icon(ft.Icons.WARNING, color="red"), ft.Text("Ties Detected!")]), 
                 content=ft.Column([
-                    ft.Text(f"Every rank must be unique in the Final Round."),
+                    ft.Text(f"Sudden Death / Tie Breaker Required."),
                     ft.Divider(),
                     ft.Column(tie_controls, spacing=10, scroll="auto", height=200)
                 ], tight=True, width=500),
@@ -328,14 +486,14 @@ def QuizConfigView(page: ft.Page, event_id: int):
             page.open(dlg)
         else:
             # Final/Clincher resolved cleanly -> End Event
-            show_advance_dialog(results[:limit], active_seg.id, is_event_end=is_final_mode)
+            # FIX: Use correct variable is_final_chain instead of undefined is_event_end
+            show_advance_dialog(results[:limit], active_seg.id, is_event_end=is_final_chain)
 
     def end_event():
         event_service.set_active_segment(event_id, None)
         page.open(ft.SnackBar(ft.Text("Congratulations! Event Concluded."), bgcolor="green"))
         refresh_tabulation_tab()
         time.sleep(1)
-        # Attempt to redirect to leaderboard
         page.go(f"/leaderboard/{event_id}")
 
     def show_advance_dialog(qualifiers, seg_id, is_event_end=False):
@@ -370,35 +528,41 @@ def QuizConfigView(page: ft.Page, event_id: int):
         db = SessionLocal()
         last_round = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index.desc()).first()
         new_order = (last_round.order_index + 1) if last_round else 1
-
+        
         tied_ids = [p['contestant_id'] for p in tied_participants]
-
+        
         # Parent Logic (Recursive nesting)
         parent_id = active_round.id
-
+        
         # Smart Naming
         new_name = f"Clincher for {label_suffix}"
         if "Clincher" in active_round.name:
              new_name = f"Sub-{new_name}"
 
-        success, msg = quiz_service.add_round(
+        # UPDATED: We now capture the returned ID (clincher_id) directly
+        success, clincher_id = quiz_service.add_round(
             current_admin_id, event_id, new_name, 
             points=1, total_questions=1, order=new_order, 
             is_final=False, qualifier_limit=spots_needed, 
             participating_ids=tied_ids, related_id=parent_id
         )
-
+        
         if success:
             # Init scores (0 pts)
-            new_seg = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.id.desc()).first()
+            # Find the new segment using the ID we just got (SAFE!)
+            # new_seg = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.id.desc()).first() 
+            # ^^^ REMOVED old risky fetch
+            
+            # Use the ID directly
             for p_id in tied_ids:
-                db.add(Score(contestant_id=p_id, segment_id=new_seg.id, judge_id=current_admin_id, question_number=0, score_value=0, is_correct=False))
+                # Score for Q1 of the clincher (1 pt possible)
+                db.add(Score(contestant_id=p_id, segment_id=clincher_id, judge_id=current_admin_id, question_number=1, score_value=0, is_correct=False)) 
             db.commit()
             
-            event_service.set_active_segment(event_id, new_seg.id)
+            event_service.set_active_segment(event_id, clincher_id)
             page.open(ft.SnackBar(ft.Text(f"Clincher Created: {new_name}"), bgcolor="orange"))
             refresh_tabulation_tab()
-
+        
         db.close()
 
     def perform_advance(current_round_id, qual_ids):
@@ -421,8 +585,13 @@ def QuizConfigView(page: ft.Page, event_id: int):
     def load_tab(idx):
         nonlocal is_polling
         is_polling = (idx == 2)
-        if is_polling: threading.Thread(target=poll_updates, daemon=True).start(); refresh_tabulation_tab()
+        if is_polling: 
+            # Check if thread is already running before starting a new one
+            if not any(t.daemon and t.is_alive() for t in threading.enumerate() if t.name == "QuizPoll"):
+                 threading.Thread(target=poll_updates, daemon=True, name="QuizPoll").start()
+            refresh_tabulation_tab()
         elif idx==0: refresh_config_tab()
         elif idx==1: refresh_c_tab()
 
     refresh_config_tab()
+    return ft.Container(content=main_tabs, padding=10, expand=True)

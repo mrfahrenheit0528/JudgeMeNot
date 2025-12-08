@@ -12,7 +12,7 @@ from sqlalchemy import func
 # VIEW 1: EVENT GALLERY (List of All Events)
 # ---------------------------------------------------------
 def EventListView(page: ft.Page):
-
+    
     # 1. Fetch All Events
     db = SessionLocal()
     events = db.query(Event).all()
@@ -22,7 +22,7 @@ def EventListView(page: ft.Page):
     def go_back_logic(e):
         user_role = page.session.get("user_role")
         print(f"DEBUG: Back Button Clicked. Session Role: '{user_role}'") 
-
+        
         if user_role in ["Admin", "AdminViewer"]:
             page.go("/admin")
         elif user_role == "Judge":
@@ -110,7 +110,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
     ev = db.query(Event).get(event_id)
     if ev: event_type = ev.event_type
     db.close()
-
+    
     # UI Elements
     title_text = ft.Text("Loading...", size=30, weight="bold", color="white")
     status_text = ft.Text("Waiting for updates...", color="white70", size=14)
@@ -121,7 +121,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
         event = db.query(Event).get(event_id)
         if event:
             title_text.value = event.name
-
+        
         scores = []
         mode_label = "LIVE RESULTS"
         
@@ -150,7 +150,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
             
             if is_final: final_segs.append(seg)
             else: prelim_segs.append(seg)
-
+        
         # Determine Headers based on Visibility
         if event_type == "QuizBee":
             # AUTO-SHOW ALL FOR QUIZ BEE
@@ -205,7 +205,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     "f_tot": int(final_total),
                     "status": c.status
                 })
-
+            
             # Sort
             if rank_by_final: scores.sort(key=lambda x: (x['f_tot'], x['p_tot']), reverse=True)
             else: scores.sort(key=lambda x: x['p_tot'], reverse=True)

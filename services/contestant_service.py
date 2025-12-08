@@ -12,7 +12,7 @@ class ContestantService:
                 Contestant.candidate_number == number,
                 Contestant.gender == gender
             ).first()
-
+            
             if exists:
                 return False, f"Candidate #{number} ({gender}) already exists."
 
@@ -72,10 +72,10 @@ class ContestantService:
             c.name = name
             c.gender = gender
             c.assigned_tabulator_id = assigned_tabulator_id
-
+            
             if image_path:
                 c.image_path = image_path
-
+            
             db.commit()
             return True, "Contestant updated."
         except Exception as e:
@@ -89,22 +89,22 @@ class ContestantService:
             target = db.query(Contestant).get(contestant_id)
             if not target: 
                 return False, "Not found."
-
+            
             event_id = target.event_id
             deleted_number = target.candidate_number
-
+            
             # 1. Delete the contestant
             db.delete(target)
-
+            
             # 2. AUTO-REORDER: Shift numbers down for everyone above this number
             higher_candidates = db.query(Contestant).filter(
                 Contestant.event_id == event_id,
                 Contestant.candidate_number > deleted_number
             ).all()
-
+            
             for c in higher_candidates:
                 c.candidate_number -= 1
-
+            
             db.commit()
             return True, "Deleted and reordered."
         except Exception as e:

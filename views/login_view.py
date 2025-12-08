@@ -35,14 +35,16 @@ def LoginView(page: ft.Page, on_login_success_callback):
 
     def forgot_password_clicked(e):
         page.client_storage.remove("user_id") 
+        
+        # Define dialog variable first
         info_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Password Recovery Policy"),
             content=ft.Column([
-                # Swapped to LOCK_OPEN to ensure compatibility
                 ft.Icon(ft.Icons.LOCK_OPEN, size=50, color=ft.Colors.BLUE_700),
                 ft.Text("For security reasons, please contact your System Administrator.\nThey can reset your password via the Admin Dashboard.")
             ], tight=True, horizontal_alignment="center", width=350),
+            # Now we reference info_dialog directly
             actions=[ft.TextButton("OK", on_click=lambda e: page.close(info_dialog))]
         )
         page.open(info_dialog)
@@ -62,11 +64,16 @@ def LoginView(page: ft.Page, on_login_success_callback):
             error_text.value = "Invalid credentials."; error_text.update()
 
     def on_google_login_click(e):
-        google_provider = page.client_storage.get("google_provider") 
-        if google_provider:
-             page.login(google_provider)
-        else:
-             page.snack_bar = ft.SnackBar(ft.Text("Google provider not configured."), bgcolor="red"); page.snack_bar.open=True; page.update()
+        # FIX: Define the dialog as a variable ('dlg') first
+        dlg = ft.AlertDialog(
+            title=ft.Text("Coming Soon"),
+            content=ft.Text("Google Sign-In is currently disabled for maintenance."),
+            actions=[
+                # Now we can safely close 'dlg' specifically
+                ft.TextButton("OK", on_click=lambda e: page.close(dlg))
+            ]
+        )
+        page.open(dlg)
 
     login_box = ft.Container(
         width=650, padding=30, bgcolor="#C9E4FF", border_radius=20,
@@ -81,7 +88,6 @@ def LoginView(page: ft.Page, on_login_success_callback):
                 
                 ft.Divider(height=25, color=ft.Colors.BLACK54),
                 ft.Text("OR"),
-                # FIXED: Changed ft.Icons.ATTRIBUTES to ft.Icons.LOGIN
                 ft.ElevatedButton("Sign in with Google", icon=ft.Icons.LOGIN, on_click=on_google_login_click, width=300, bgcolor=ft.Colors.WHITE, color=ft.Colors.BLACK),
                 ft.TextButton("Create a Judge/Tabulator Account", on_click=lambda e: page.go("/signup"))
             ]
