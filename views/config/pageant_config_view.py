@@ -8,7 +8,9 @@ from services.contestant_service import ContestantService
 from services.admin_service import AdminService
 from services.export_service import ExportService
 from core.database import SessionLocal
-from models.all_models import Segment, Criteria
+from models.all_models import Segment, Criteria, Event
+import datetime
+import os
 
 def PageantConfigView(page: ft.Page, event_id: int):
     # Services
@@ -545,7 +547,109 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 ], alignment="spaceBetween")
             ))
         page.update()
+# ---------------------------------------------------------
+    # EXPORT DIALOG LOGIC
+    # ---------------------------------------------------------
+    def run_export(file_type):
+        # 1. Close the dialog first
+        page.close(export_dialog)
+        
+        # 2. Prepare Data
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Fetch Event Name for the filename
+        db = SessionLocal()
+        ev = db.query(Event).get(event_id)
+        event_name = ev.name if ev else "Event"
+        db.close()
+        
+        # Fetch the Score Data
+        data = pageant_service.get_overall_breakdown(event_id)
+        
+        # Ensure directory exists
+        export_dir = "assets/exports"
+        os.makedirs(export_dir, exist_ok=True)
 
+        success = False
+        filepath = ""
+
+        try:
+            if file_type == "xlsx":
+                filename = f"{event_name}_Tabulation_{timestamp}.xlsx"
+                filepath = os.path.join(export_dir, filename)
+                success = export_service.generate_excel(
+                    filepath=filepath,
+                    event_name=event_name,
+                    title="OFFICIAL TABULATION RESULTS",
+                    data_matrix=data,
+                    mode="overall"
+                )
+            elif file_type == "pdf":
+                filename = f"{event_name}_Tabulation_{timestamp}.pdf"
+                filepath = os.path.join(export_dir, filename)
+                success = export_service.generate_pdf(
+                    filepath=filepath,
+                    event_name=event_name,
+                    title="OFFICIAL TABULATION RESULTS",
+                    data_matrix=data,
+                    mode="overall"
+                )
+
+            if success:
+                page.open(ft.SnackBar(ft.Text(f"Successfully exported: {filename}"), bgcolor="green"))
+                # Optional: Attempt to open the file (Desktop only)
+                try:
+                    os.startfile(filepath)
+                except:
+                    pass # Silently fail if OS doesn't support startfile (e.g. Linux/Mac needs 'xdg-open' or 'open')
+            else:
+                page.open(ft.SnackBar(ft.Text("Export failed. Check console for details."), bgcolor="red"))
+                
+        except Exception as ex:
+             page.open(ft.SnackBar(ft.Text(f"Error: {ex}"), bgcolor="red"))
+
+    # The Dialog UI
+    export_dialog = ft.AlertDialog(
+        title=ft.Text("Export Results"),
+        content=ft.Column([
+            ft.Text("Select the format you wish to download:"),
+            ft.Container(height=10),
+            ft.Row([
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.TABLE_CHART, size=40, color="green"),
+                        ft.Text("Excel (.xlsx)", weight="bold")
+                    ], alignment="center", horizontal_alignment="center"),
+                    padding=20,
+                    bgcolor=ft.Colors.GREEN_50,
+                    border_radius=10,
+                    ink=True,
+                    on_click=lambda e: run_export("xlsx"),
+                    width=130, height=120,
+                    border=ft.border.all(1, "green")
+                ),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.PICTURE_AS_PDF, size=40, color="red"),
+                        ft.Text("PDF Document", weight="bold")
+                    ], alignment="center", horizontal_alignment="center"),
+                    padding=20,
+                    bgcolor=ft.Colors.RED_50,
+                    border_radius=10,
+                    ink=True,
+                    on_click=lambda e: run_export("pdf"),
+                    width=130, height=120,
+                    border=ft.border.all(1, "red")
+                )
+            ], alignment="center", spacing=20)
+        ], tight=True, width=400),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: page.close(export_dialog))
+        ]
+    )
+
+    def open_export_dialog(e):
+        page.open(export_dialog)
     # =================================================================================================
     # TAB 4: TABULATION
     # =================================================================================================
@@ -557,8 +661,11 @@ def PageantConfigView(page: ft.Page, event_id: int):
             ft.Text("Tabulation Board", size=20, weight="bold"),
             ft.Row([
                 ft.IconButton(icon=ft.Icons.REFRESH, on_click=lambda e: refresh_scores_tab()),
-                ft.ElevatedButton("Export Scores", icon=ft.Icons.DOWNLOAD, on_click=lambda e: page.open(ft.SnackBar(ft.Text("Export logic moved to ExportService"), bgcolor="blue")))
-            ])
+                ft.ElevatedButton(
+                    "Export Scores", 
+                    icon=ft.Icons.DOWNLOAD, 
+                    on_click=open_export_dialog)
+                ])
         ], alignment="spaceBetween"))
 
         # Tabs for Segments
