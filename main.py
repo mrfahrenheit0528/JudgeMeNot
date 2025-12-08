@@ -5,27 +5,31 @@ from views.login_view import LoginView
 from views.admin_dashboard import AdminDashboardView
 from views.admin_config_view import AdminConfigView
 from views.judge_view import JudgeView
+from views.tabulator_view import TabulatorView 
 
 def main(page: ft.Page):
     page.title = "JudgeMeNot System"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.assets_dir = "assets"
 
-    # --- WINDOW SETTINGS (FIXED FOR FLET 0.28+) ---
-    # These properties must be set on the 'page.window' object
+    # --- WINDOW SETTINGS ---
     page.window.min_width = 900
     page.window.min_height = 675
-    page.update()
-
-    # Optional: Set a nice starting size
-    page.window.width = 1280
-    page.window.height = 720
-    page.window.center() # Centers the window on screen start
+    page.window.center() 
 
     auth_service = AuthService()
 
+    # --- NAVIGATION GUARD ---
+    # Prevents 'view_pop' from firing during programmatic navigation
+    page.is_navigating = False 
+
     def route_change(route):
+        page.is_navigating = True # Start Navigation Lock
+        
+        # 1. Clear previous views
         page.views.clear()
+        # 2. Clear overlays (Dialogs)
+        page.overlay.clear()
 
         user_id = page.session.get("user_id")
         user_role = page.session.get("user_role")
@@ -39,10 +43,11 @@ def main(page: ft.Page):
                     "/login",
                     [LoginView(page, on_login_success)],
                     vertical_alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    padding=0
                 )
             )
-
+        
         # --- ROUTE: ADMIN DASHBOARD ---
         elif page.route == "/admin":
             if user_id and user_role in ["Admin", "AdminViewer"]:
@@ -54,7 +59,6 @@ def main(page: ft.Page):
                     )
                 )
             else:
-                print("⛔ Access Denied: Admin Dashboard")
                 page.go("/login")
 
         # --- ROUTE: EVENT CONFIGURATION ---
@@ -62,7 +66,6 @@ def main(page: ft.Page):
             if user_id and user_role == "Admin": 
                 try:
                     event_id = int(page.route.split("/")[-1])
-                    print(f"⚙️ Loading Config for Event ID: {event_id}")
                     page.views.append(
                         ft.View(
                             f"/admin/event/{event_id}",
@@ -71,11 +74,8 @@ def main(page: ft.Page):
                         )
                     )
                 except ValueError:
-                    print("❌ Error: Invalid Event ID in URL")
-                    page.open(ft.SnackBar(ft.Text("Invalid Event ID")))
                     page.go("/admin")
             else:
-                print("⛔ Access Denied: Event Config")
                 page.go("/login")
 
         # --- ROUTE: JUDGE INTERFACE ---
@@ -89,20 +89,39 @@ def main(page: ft.Page):
                     )
                 )
             else:
-                print("⛔ Access Denied: Judge View")
+                page.go("/login")
+        
+        # --- ROUTE: TABULATOR ---
+        elif page.route == "/tabulator":
+             if user_id and user_role == "Tabulator":
+                page.views.append(
+                    ft.View(
+                        "/tabulator",
+                        [TabulatorView(page, on_logout)],
+                        padding=0
+                    )
+                )
+             else:
                 page.go("/login")
 
         # --- CATCH ALL ---
         else:
-            print("⚠️ Unknown Route -> Redirecting to Login")
             page.go("/login")
 
         page.update()
+        page.is_navigating = False # Release Lock after update
 
     def view_pop(view):
-        page.views.pop()
-        top_view = page.views[-1]
-        page.go(top_view.route)
+        # If we are in the middle of a route change, IGNORE pop events
+        if getattr(page, 'is_navigating', False):
+            return
+
+        if len(page.views) > 1:
+            page.views.pop()
+            top_view = page.views[-1]
+            page.go(top_view.route)
+        else:
+            print("⚠️ Root view reached. Ignoring pop.")
 
     def on_login_success(user):
         page.session.set("user_id", user.id)
@@ -119,19 +138,18 @@ def main(page: ft.Page):
             page.go("/login")
 
     def on_logout(e):
+        print("👋 Logging out...")
         page.session.clear()
         page.go("/login")
 
     page.on_route_change = route_change
     page.on_view_pop = view_pop
+    
+    # Initialize app
     page.go(page.route)
 
 # --- HELPER: GET LOCAL IP ---
 def get_local_ip():
-    """
-    Connects to a public DNS (8.8.8.8) to determine the best local IP 
-    interface used by the OS. It doesn't actually send data.
-    """
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('8.8.8.8', 1))
@@ -154,5 +172,5 @@ if __name__ == "__main__":
     # We pass '0.0.0.0' to host to bind to ALL interfaces, 
     # but we print the specific IP above for user convenience.
 
-    # ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host=my_ip)
-    ft.app(target=main)
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host=my_ip)
+    # ft.app(target=main)
