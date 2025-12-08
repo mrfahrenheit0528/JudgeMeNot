@@ -2,5 +2,6 @@ cccs106_fp_env
 __pycache__
 .env
 assets/uploads/
+assets/exports/
 repomix-output.xml
 seed.py
