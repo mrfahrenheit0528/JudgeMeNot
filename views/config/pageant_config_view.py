@@ -23,7 +23,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
     editing_segment_id = None 
     editing_criteria_id = None 
     selected_segment_id = None
-    pending_action_seg_id = None
+    pending_action_seg_id = None 
 
     # Contestant Tab State
     uploaded_file_path = None
@@ -36,9 +36,9 @@ def PageantConfigView(page: ft.Page, event_id: int):
     scores_tab_content = ft.Column(spacing=20, scroll="adaptive", expand=True)
 
     # =================================================================================================
-    # TAB 1: CONFIGURATION (Merged from old pageant_config_view.py)
+    # TAB 1: CONFIGURATION
     # =================================================================================================
-    
+
     # --- UI CONTROLS ---
     p_seg_name = ft.TextField(label="Segment Name", width=280)
     p_seg_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
@@ -124,6 +124,12 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 card_bg = status_color
                 badge = ft.Chip(label=ft.Text(f"{int(seg.percentage_weight * 100)}%"))
 
+            # --- REVEAL BUTTON LOGIC ---
+            # IMPORTANT: This checks the 'is_revealed' column in DB
+            reveal_icon = ft.Icons.VISIBILITY if getattr(seg, 'is_revealed', False) else ft.Icons.VISIBILITY_OFF
+            reveal_color = ft.Colors.BLUE if getattr(seg, 'is_revealed', False) else ft.Colors.GREY
+            reveal_tooltip = "Visible on Leaderboard" if getattr(seg, 'is_revealed', False) else "Hidden from Leaderboard"
+
             card = ft.Card(
                 content=ft.Container(
                     bgcolor=card_bg,
@@ -149,6 +155,14 @@ def PageantConfigView(page: ft.Page, event_id: int):
                                 )
                             ]),
                             ft.Row([
+                                # THE EYE ICON IS HERE
+                                ft.IconButton(
+                                    icon=reveal_icon, 
+                                    icon_color=reveal_color, 
+                                    tooltip=reveal_tooltip,
+                                    data=seg.id, 
+                                    on_click=lambda e: toggle_reveal(e.control.data)
+                                ),
                                 ft.IconButton(icon=ft.Icons.EDIT, tooltip="Edit", data=seg, on_click=open_edit_seg_dialog),
                                 ft.IconButton(icon=ft.Icons.ADD_CIRCLE_OUTLINE, tooltip="Add Criteria", data=seg.id, on_click=open_add_crit_dialog)
                             ])
@@ -165,10 +179,18 @@ def PageantConfigView(page: ft.Page, event_id: int):
         elif current_total_weight < 0.999:
             config_tab_content.controls.append(ft.Text(f"ℹ️ Prelim Weight is {int(current_total_weight*100)}%. Add more segments.", color="blue"))
         else:
-            config_tab_content.controls.append(ft.Text("✅ Prelim Weight is 100%.", color="green"))
+             config_tab_content.controls.append(ft.Text("✅ Prelim Weight is 100%.", color="green"))
 
         db.close()
         page.update()
+
+    def toggle_reveal(seg_id):
+        success, msg = event_service.toggle_segment_reveal(seg_id)
+        if success:
+            page.open(ft.SnackBar(ft.Text(msg), bgcolor="green"))
+            refresh_config_tab()
+        else:
+            page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     # --- SAFETY DIALOGS ---
     def confirm_simple_action(e):
@@ -450,13 +472,13 @@ def PageantConfigView(page: ft.Page, event_id: int):
             num = int(c_number.value)
             if editing_contestant_id: success, msg = contestant_service.update_contestant(editing_contestant_id, num, c_name.value, c_gender.value, uploaded_file_path)
             else: success, msg = contestant_service.add_contestant(event_id, num, c_name.value, c_gender.value, uploaded_file_path)
-            
+
             if success: page.open(ft.SnackBar(ft.Text("Saved!"), bgcolor="green")); page.close(contestant_dialog); refresh_contestant_tab()
             else: page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
         except: page.open(ft.SnackBar(ft.Text("Invalid Number"), bgcolor="red"))
 
     contestant_dialog = ft.AlertDialog(title=ft.Text("Contestant"), content=ft.Column([ft.Row([c_number, c_gender]), c_name, ft.Row([upload_btn, img_preview])], height=250, width=300), actions=[ft.TextButton("Save", on_click=save_contestant)])
-    
+
     def open_add_c_dialog(e): nonlocal editing_contestant_id, uploaded_file_path; editing_contestant_id=None; uploaded_file_path=None; c_number.value=""; c_name.value=""; img_preview.visible=False; page.open(contestant_dialog)
     def open_edit_c_dialog(e): nonlocal editing_contestant_id, uploaded_file_path; d=e.control.data; editing_contestant_id=d.id; uploaded_file_path=d.image_path; c_number.value=str(d.candidate_number); c_name.value=d.name; c_gender.value=d.gender; img_preview.src=d.image_path if d.image_path else ""; img_preview.visible=bool(d.image_path); page.open(contestant_dialog)
     def delete_contestant(e): contestant_service.delete_contestant(e.control.data); refresh_contestant_tab()
@@ -464,9 +486,9 @@ def PageantConfigView(page: ft.Page, event_id: int):
     def refresh_contestant_tab():
         contestant_tab_content.controls.clear()
         contestants = contestant_service.get_contestants(event_id)
-        
+
         contestant_tab_content.controls.append(ft.Row([ft.Text("Pageant Candidates", size=20, weight="bold"), ft.ElevatedButton("Add Candidate", icon=ft.Icons.ADD, on_click=open_add_c_dialog)], alignment="spaceBetween"))
-        
+
         def build_list(gender, icon, color):
             items = [c for c in contestants if c.gender == gender]
             controls = [ft.Container(content=ft.Text(f"{gender.upper()} CANDIDATES", weight="bold", color=color), padding=5)]
@@ -492,7 +514,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
     # =================================================================================================
     j_select = ft.Dropdown(label="Select Judge", width=300)
     j_is_chairman = ft.Checkbox(label="Is Chairman?", value=False)
-    
+
     def save_judge(e):
         if not j_select.value: return
         success, msg = event_service.assign_judge(event_id, int(j_select.value), j_is_chairman.value)
@@ -500,7 +522,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
         else: page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     judge_dialog = ft.AlertDialog(title=ft.Text("Assign Judge"), content=ft.Column([j_select, j_is_chairman], height=150, width=300), actions=[ft.TextButton("Assign", on_click=save_judge)])
-    
+
     def open_judge_dialog(e):
         users = admin_service.get_all_judges()
         j_select.options = [ft.dropdown.Option(key=str(u.id), text=u.name) for u in users]
@@ -511,7 +533,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
     def refresh_judges_tab():
         judges_tab_content.controls.clear()
         judges_tab_content.controls.append(ft.Row([ft.Text("Panel of Judges", size=20, weight="bold"), ft.ElevatedButton("Assign Judge", icon=ft.Icons.ADD, on_click=open_judge_dialog)], alignment="spaceBetween"))
-        
+
         assigned = event_service.get_assigned_judges(event_id)
         for aj in assigned:
             role_col = "orange" if aj.is_chairman else "blue"
@@ -529,7 +551,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
     # =================================================================================================
     def refresh_scores_tab():
         scores_tab_content.controls.clear()
-        
+
         # Header with Export
         scores_tab_content.controls.append(ft.Row([
             ft.Text("Tabulation Board", size=20, weight="bold"),
@@ -567,7 +589,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
                         for s in r['scores']: cells.append(ft.DataCell(ft.Text(str(s))))
                         cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="green")))
                         rows.append(ft.DataRow(cells))
-            
+
             return ft.DataTable(columns=[ft.DataColumn(ft.Text(c, size=12)) for c in cols], rows=rows, heading_row_height=30, column_spacing=10)
 
         tabs = [ft.Tab(text="OVERALL", content=ft.Column([build_matrix(None)], scroll="adaptive"))]
@@ -597,5 +619,4 @@ def PageantConfigView(page: ft.Page, event_id: int):
             expand=True
         ),
         padding=10,
-        expand=True
-    )
+        expand=True)

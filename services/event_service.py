@@ -90,6 +90,22 @@ class EventService:
         finally:
             db.close()
 
+    def toggle_segment_reveal(self, segment_id):
+        """Toggles the visibility of a segment on the public leaderboard"""
+        db = SessionLocal()
+        try:
+            seg = db.query(Segment).get(segment_id)
+            if seg:
+                seg.is_revealed = not seg.is_revealed
+                db.commit()
+                status = "Visible" if seg.is_revealed else "Hidden"
+                return True, f"Segment is now {status}"
+            return False, "Segment not found"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            db.close()
+
     # ---------------------------------------------------------
     # ACTIVE SEGMENT CONTROL
     # ---------------------------------------------------------

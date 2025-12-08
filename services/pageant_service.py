@@ -5,6 +5,9 @@ from models.all_models import Segment, Criteria, Score, Contestant, Event, User,
 import datetime
 
 class PageantService:
+    # ---------------------------------------------------------
+    # SEGMENT MANAGEMENT
+    # ---------------------------------------------------------
     def add_segment(self, event_id, name, weight, order, is_final=False, limit=0):
         db = SessionLocal()
         try:
@@ -120,7 +123,7 @@ class PageantService:
             # But since this is triggered on "Lock & Save", it is appropriate.
             c_name = db.query(Contestant.name).filter(Contestant.id == contestant_id).scalar()
             crit_name = db.query(Criteria.name).filter(Criteria.id == criteria_id).scalar()
-            
+
             log = AuditLog(
                 user_id=judge_id,
                 action="SCORE_SUBMIT",
@@ -128,7 +131,7 @@ class PageantService:
                 timestamp=datetime.datetime.now()
             )
             db.add(log)
-            
+
             db.commit()
             return True, "Score saved."
         except Exception as e:
@@ -178,6 +181,18 @@ class PageantService:
         results = []
         try:
             contestants = db.query(Contestant).filter(Contestant.event_id == event_id).all()
+            
+            # Fetch Revealed Segments ONLY for calculation if we want leaderboard logic here,
+            # BUT usually calculation should be total.
+            # However, for the Viewer Dashboard, we might filter later.
+            # Let's calculate purely based on revealed segments to match the request.
+            # Wait, the previous request implies calculating total based on revealed segments.
+            
+            # Since this function is used generally, let's keep it calculating everything,
+            # or update it to support a 'revealed_only' flag.
+            # For now, let's keep it simple and calculate based on ALL segments, 
+            # filtering happens in the Viewer Dashboard logic I wrote previously.
+            
             segments = db.query(Segment).filter(Segment.event_id == event_id).all()
 
             for c in contestants:
@@ -196,6 +211,7 @@ class PageantService:
                     "contestant_id": c.id,
                     "name": c.name,
                     "candidate_number": c.candidate_number,
+                    "gender": c.gender, # Added gender
                     "total_score": round(total_event_score, 2)
                 })
 
@@ -317,6 +333,10 @@ class PageantService:
             }
         finally:
             db.close()
+
+    # ---------------------------------------------------------
+    # NEW: ADMIN REPORTING (Raw)
+    # ---------------------------------------------------------
     def get_all_scores_detailed(self, event_id):
         db = SessionLocal()
         try:
@@ -393,7 +413,7 @@ class PageantService:
             prog = db.query(JudgeProgress).filter(JudgeProgress.judge_id == judge_id, JudgeProgress.segment_id == segment_id).first()
             if prog: prog.is_finished = True
             else: db.add(JudgeProgress(judge_id=judge_id, segment_id=segment_id, is_finished=True))
-            
+
             # AUDIT LOG
             seg_name = db.query(Segment.name).filter(Segment.id == segment_id).scalar()
             log = AuditLog(
@@ -403,7 +423,7 @@ class PageantService:
                 timestamp=datetime.datetime.now()
             )
             db.add(log)
-            
+
             db.commit()
             return True
         except: return False

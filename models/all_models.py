@@ -55,6 +55,9 @@ class Segment(Base):
     percentage_weight = Column(Float, default=0.0)
     is_active = Column(Boolean, default=False)
 
+    # NEW: VISIBILITY CONTROL
+    is_revealed = Column(Boolean, default=False) # Controls Leaderboard Visibility
+    
     # NEW: ELIMINATION LOGIC
     is_final = Column(Boolean, default=False) # Is this the "reset" round?
     qualifier_limit = Column(Integer, default=0) # How many get in? (e.g. Top 5)
@@ -68,11 +71,11 @@ class Segment(Base):
 
     # NEW: Link to Parent Round (for Clinchers to know where they came from)
     related_segment_id = Column(Integer, ForeignKey('segments.id'), nullable=True)
-    
+
     event = relationship("Event", back_populates="segments")
     criteria = relationship("Criteria", back_populates="segment")
     scores = relationship("Score", back_populates="segment")
-    
+
     # Self-referential relationship (optional helper)
     children = relationship("Segment", backref=backref('parent', remote_side=[id]))
 
