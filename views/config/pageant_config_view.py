@@ -9,6 +9,7 @@ from services.admin_service import AdminService
 from services.export_service import ExportService
 from core.database import SessionLocal
 from models.all_models import Segment, Criteria, Event
+from components.dialogs import show_about_dialog, show_contact_dialog
 import datetime
 import os
 
@@ -19,6 +20,16 @@ def PageantConfigView(page: ft.Page, event_id: int):
     contestant_service = ContestantService()
     admin_service = AdminService()
     export_service = ExportService()
+
+    # --- FETCH EVENT DETAILS FOR HEADER ---
+    db = SessionLocal()
+    event_obj = db.query(Event).get(event_id)
+    event_name = event_obj.name if event_obj else "Pageant Event"
+    db.close()
+
+    # --- PERMISSION CHECK ---
+    user_role = page.session.get("user_role")
+    is_read_only = (user_role == "AdminViewer")
 
     # --- STATE VARIABLES ---
     # Config Tab State
@@ -32,27 +43,56 @@ def PageantConfigView(page: ft.Page, event_id: int):
     editing_contestant_id = None
     
     # Export State
-    pending_export_type = None # Tracks if user clicked PDF or Excel
+    pending_export_type = None 
+    selected_export_scope = "overall" # Default to overall
 
-    # --- UI WRAPPERS FOR TABS ---
-    config_tab_content = ft.Column(spacing=20, scroll="adaptive", expand=True)
-    contestant_tab_content = ft.Column(spacing=20, scroll="adaptive", expand=True)
-    judges_tab_content = ft.Column(spacing=20, scroll="adaptive", expand=True)
-    scores_tab_content = ft.Column(spacing=20, scroll="adaptive", expand=True)
+    # --- HEADER CONSTRUCTION ---
+    header_logo = ft.Container(
+        width=40, height=40, border_radius=50, bgcolor="transparent",
+        border=ft.border.all(2, "black"), padding=5,
+        content=ft.Image(src="hammer.png", fit=ft.ImageFit.CONTAIN, error_content=ft.Icon(ft.Icons.GAVEL, color="black"))
+    )
+
+    header = ft.Container(
+        height=70, padding=ft.padding.symmetric(horizontal=20), bgcolor="#80C1FF",
+        shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.GREY_300),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                ft.Row(spacing=10, controls=[
+                    ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=lambda e: page.go("/admin")),
+                    header_logo, 
+                    # Indicate Auditor View in Title
+                    ft.Text(f"Config: {event_name}" if not is_read_only else f"Auditing: {event_name}", size=20, weight="bold", color="black", overflow=ft.TextOverflow.ELLIPSIS)
+                ]),
+                ft.Row(spacing=5, controls=[
+                    ft.TextButton("LEADERBOARD", icon=ft.Icons.EMOJI_EVENTS, style=ft.ButtonStyle(color="black"), on_click=lambda e: page.go("/leaderboard")),
+                    ft.TextButton("ABOUT", style=ft.ButtonStyle(color="black"), on_click=lambda e: show_about_dialog(page)),
+                    ft.TextButton("CONTACT", style=ft.ButtonStyle(color="black"), on_click=lambda e: show_contact_dialog(page)),
+                ])
+            ]
+        )
+    )
+
+    # --- UI WRAPPERS FOR TABS (Styled) ---
+    config_tab_content = ft.Column(spacing=15, scroll="adaptive", expand=True)
+    contestant_tab_content = ft.Column(spacing=15, scroll="adaptive", expand=True)
+    judges_tab_content = ft.Column(spacing=15, scroll="adaptive", expand=True)
+    scores_tab_content = ft.Column(spacing=15, scroll="adaptive", expand=True)
 
     # =================================================================================================
     # TAB 1: CONFIGURATION
     # =================================================================================================
     
     # --- UI CONTROLS ---
-    p_seg_name = ft.TextField(label="Segment Name", width=280)
-    p_seg_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
-    p_crit_name = ft.TextField(label="Criteria Name", width=280)
-    p_crit_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280)
-    p_crit_max = ft.TextField(label="Max Score", value="100", keyboard_type=ft.KeyboardType.NUMBER, width=280) 
+    p_seg_name = ft.TextField(label="Segment Name", width=280, dense=True)
+    p_seg_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280, dense=True)
+    p_crit_name = ft.TextField(label="Criteria Name", width=280, dense=True)
+    p_crit_weight = ft.TextField(label="Weight (%)", suffix_text="%", keyboard_type=ft.KeyboardType.NUMBER, width=280, dense=True)
+    p_crit_max = ft.TextField(label="Max Score", value="100", keyboard_type=ft.KeyboardType.NUMBER, width=280, dense=True) 
     
     p_is_final = ft.Checkbox(label="Is Final Round?", value=False)
-    p_qualifiers = ft.TextField(label="Qualifiers Count", value="5", width=280, visible=False, keyboard_type=ft.KeyboardType.NUMBER)
+    p_qualifiers = ft.TextField(label="Qualifiers Count", value="5", width=280, visible=False, keyboard_type=ft.KeyboardType.NUMBER, dense=True)
 
     def on_final_check(e):
         p_qualifiers.visible = p_is_final.value
@@ -66,15 +106,19 @@ def PageantConfigView(page: ft.Page, event_id: int):
         config_tab_content.controls.clear()
         
         db = SessionLocal()
-        segments = db.query(Segment).filter(Segment.event_id == event_id).all()
+        segments = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all()
         final_round_is_active = any(s.is_active and s.is_final for s in segments)
 
+        # Header Row
+        # Hide Action Buttons if Read Only
+        action_buttons = ft.Row([
+            ft.OutlinedButton("Deactivate All", icon=ft.Icons.STOP_CIRCLE, style=ft.ButtonStyle(color="red"), on_click=lambda e: request_toggle_status(None)),
+            ft.ElevatedButton("Add Segment", icon=ft.Icons.ADD, on_click=open_add_seg_dialog, bgcolor="#64AEFF", color="white")
+        ]) if not is_read_only else ft.Container()
+
         config_tab_content.controls.append(ft.Row([
-            ft.Text("Pageant Rounds", size=20, weight="bold"),
-            ft.Row([
-                ft.OutlinedButton("Deactivate All", icon=ft.Icons.STOP_CIRCLE, style=ft.ButtonStyle(color="red"), on_click=lambda e: request_toggle_status(None)),
-                ft.ElevatedButton("Add Segment", icon=ft.Icons.ADD, on_click=open_add_seg_dialog)
-            ])
+            ft.Text("Pageant Rounds", size=24, weight="bold"),
+            action_buttons
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
 
         current_total_weight = 0.0
@@ -84,26 +128,31 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 current_total_weight += seg.percentage_weight
             
             criterias = db.query(Criteria).filter(Criteria.segment_id == seg.id).all()
-            crit_list = ft.Column(spacing=5)
+            crit_list = ft.Column(spacing=0)
+            
             for c in criterias:
+                # Criteria Edit Button
+                crit_edit_btn = ft.IconButton(icon=ft.Icons.EDIT, icon_size=16, icon_color="grey", tooltip="Edit Criteria", data=c, on_click=open_edit_crit_dialog) if not is_read_only else ft.Container()
+                
                 crit_list.controls.append(
                     ft.Container(
                         content=ft.Row([
                             ft.Row([
                                 ft.Icon(ft.Icons.SUBDIRECTORY_ARROW_RIGHT, size=16, color="grey"),
-                                ft.Text(f"{c.name}", weight="bold"),
-                                ft.Text(f"Weight: {int(c.weight * 100)}%"),
-                                ft.Text(f"Max: {c.max_score} pts", color="blue"), 
+                                ft.Text(f"{c.name}", weight="w500", size=14),
                             ]),
-                            ft.IconButton(icon=ft.Icons.EDIT, icon_size=16, tooltip="Edit Criteria", data=c, on_click=open_edit_crit_dialog)
+                            ft.Row([
+                                ft.Text(f"{int(c.weight * 100)}%", size=12, color="grey"),
+                                ft.Text(f"/ {c.max_score} pts", size=12, color="blue"),
+                                crit_edit_btn
+                            ], spacing=10)
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        padding=ft.padding.only(left=20),
-                        bgcolor=ft.Colors.GREY_50,
-                        border_radius=5
+                        padding=ft.padding.only(left=40, right=10, top=5, bottom=5),
+                        border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
                     )
                 )
 
-            # STATUS LOGIC (Unchanged)
+            # STATUS LOGIC
             if seg.is_active:
                 status_color = ft.Colors.GREEN_50
                 status_text = "ACTIVE"
@@ -112,81 +161,100 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 opacity = 1.0
                 is_disabled = False 
             else:
-                status_color = ft.Colors.WHITE
+                status_color = "white"
                 status_text = "INACTIVE"
                 status_icon = ft.Icons.RADIO_BUTTON_UNCHECKED
-                border_side = None
+                border_side = ft.border.all(1, "#E0E0E0")
                 
                 if final_round_is_active:
-                    opacity = 0.5 
+                    opacity = 0.6 
                     is_disabled = True 
                 else:
                     opacity = 1.0
                     is_disabled = False
+            
+            # Force disable status toggle if read only
+            if is_read_only: is_disabled = True
 
             if seg.is_final:
-                card_bg = ft.Colors.AMBER_50 if seg.is_active else ft.Colors.GREY_100
-                badge = ft.Container(content=ft.Text(f"FINAL (Top {seg.qualifier_limit})", color="black", size=12, weight="bold"), bgcolor=ft.Colors.AMBER_300, padding=5, border_radius=5)
+                card_bg = ft.Colors.AMBER_50 if seg.is_active else "white"
+                badge = ft.Container(content=ft.Text(f"FINAL (Top {seg.qualifier_limit})", color="black", size=10, weight="bold"), bgcolor=ft.Colors.AMBER_300, padding=5, border_radius=5)
             else:
                 card_bg = status_color
-                badge = ft.Chip(label=ft.Text(f"{int(seg.percentage_weight * 100)}%"))
+                badge = ft.Container(content=ft.Text(f"{int(seg.percentage_weight * 100)}%", size=10, color="white", weight="bold"), bgcolor="#64AEFF", padding=5, border_radius=5)
 
             reveal_icon = ft.Icons.VISIBILITY if getattr(seg, 'is_revealed', False) else ft.Icons.VISIBILITY_OFF
             reveal_color = ft.Colors.BLUE if getattr(seg, 'is_revealed', False) else ft.Colors.GREY
             reveal_tooltip = "Visible on Leaderboard" if getattr(seg, 'is_revealed', False) else "Hidden from Leaderboard"
+            
+            # Action Buttons Row
+            if not is_read_only:
+                actions_row = ft.Row([
+                    ft.IconButton(
+                        icon=reveal_icon, 
+                        icon_color=reveal_color, 
+                        tooltip=reveal_tooltip,
+                        data=seg.id, 
+                        on_click=lambda e: toggle_reveal(e.control.data)
+                    ),
+                    ft.IconButton(icon=ft.Icons.EDIT, tooltip="Edit", icon_color="blue", data=seg, on_click=open_edit_seg_dialog),
+                    ft.IconButton(icon=ft.Icons.ADD_CIRCLE, tooltip="Add Criteria", icon_color="green", data=seg.id, on_click=open_add_crit_dialog)
+                ])
+            else:
+                actions_row = ft.Container() # Empty for auditors
 
-            card = ft.Card(
-                content=ft.Container(
-                    bgcolor=card_bg,
-                    border=border_side,
-                    opacity=opacity,
+            # New Modern Card Layout
+            card_content = ft.Column([
+                ft.Container(
                     padding=15,
-                    content=ft.Column([
+                    bgcolor=card_bg,
+                    content=ft.Row([
                         ft.Row([
-                            ft.Row([
-                                ft.IconButton(
-                                    icon=status_icon, 
-                                    icon_color="green" if seg.is_active else "grey",
-                                    data=seg.id,
-                                    disabled=is_disabled,
-                                    on_click=lambda e, s=seg: request_final_activation(s.id) if s.is_final else request_toggle_status(s.id)
-                                ),
-                                ft.Text(f"{seg.name}", size=18, weight="bold"),
-                                badge,
-                                ft.Container(
-                                    content=ft.Text(status_text, size=10, color="white", weight="bold"),
-                                    bgcolor="green" if seg.is_active else "grey",
-                                    padding=5, border_radius=5
-                                )
-                            ]),
-                            ft.Row([
-                                ft.IconButton(
-                                    icon=reveal_icon, 
-                                    icon_color=reveal_color, 
-                                    tooltip=reveal_tooltip,
-                                    data=seg.id, 
-                                    on_click=lambda e: toggle_reveal(e.control.data)
-                                ),
-                                ft.IconButton(icon=ft.Icons.EDIT, tooltip="Edit", data=seg, on_click=open_edit_seg_dialog),
-                                ft.IconButton(icon=ft.Icons.ADD_CIRCLE_OUTLINE, tooltip="Add Criteria", data=seg.id, on_click=open_add_crit_dialog)
-                            ])
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Divider(),
-                        crit_list if criterias else ft.Text("No criteria added yet.", italic=True, color="grey")
-                    ])
+                            ft.IconButton(
+                                icon=status_icon, 
+                                icon_color="green" if seg.is_active else "grey",
+                                data=seg.id,
+                                disabled=is_disabled,
+                                tooltip="Activate Round (Disabled)" if is_read_only else "Activate Round",
+                                on_click=lambda e, s=seg: request_final_activation(s.id) if s.is_final else request_toggle_status(s.id)
+                            ),
+                            ft.Text(f"{seg.name}", size=16, weight="bold"),
+                            badge,
+                        ], spacing=10),
+                        
+                        actions_row
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ),
+                ft.Divider(height=1, color="#E0E0E0"),
+                ft.Container(
+                    content=crit_list if criterias else ft.Text("No criteria added yet.", italic=True, color="grey", size=12),
+                    padding=10
                 )
+            ], spacing=0)
+
+            container = ft.Container(
+                content=card_content,
+                bgcolor="white",
+                border_radius=10,
+                shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.BLACK12),
+                border=border_side,
+                opacity=opacity,
+                margin=ft.margin.only(bottom=10)
             )
-            config_tab_content.controls.append(card)
+            config_tab_content.controls.append(container)
         
         if current_total_weight > 1.0001:
-            config_tab_content.controls.append(ft.Text(f"⚠️ Prelim Weight is {int(current_total_weight*100)}%. It should be 100%.", color="red"))
+            config_tab_content.controls.append(ft.Container(content=ft.Text(f"⚠️ Prelim Weight is {int(current_total_weight*100)}%. It should be 100%.", color="red", weight="bold"), bgcolor=ft.Colors.RED_50, padding=10, border_radius=5))
         elif current_total_weight < 0.999:
-            config_tab_content.controls.append(ft.Text(f"ℹ️ Prelim Weight is {int(current_total_weight*100)}%. Add more segments.", color="blue"))
+            config_tab_content.controls.append(ft.Container(content=ft.Text(f"ℹ️ Prelim Weight is {int(current_total_weight*100)}%. Add more segments to reach 100%.", color="blue", weight="bold"), bgcolor=ft.Colors.BLUE_50, padding=10, border_radius=5))
         else:
-             config_tab_content.controls.append(ft.Text("✅ Prelim Weight is 100%.", color="green"))
+             config_tab_content.controls.append(ft.Container(content=ft.Text("✅ Prelim Weight is perfect (100%).", color="green", weight="bold"), bgcolor=ft.Colors.GREEN_50, padding=10, border_radius=5))
 
         db.close()
         page.update()
+
+    # ... (Keep existing helpers: toggle_reveal, confirm/strict dialogs, request_toggle_status, execute_toggle, final_activation logic, save handlers) ...
+    # They are safe to keep because the buttons triggering them are hidden for Read Only users.
 
     def toggle_reveal(seg_id):
         success, msg = event_service.toggle_segment_reveal(seg_id)
@@ -210,7 +278,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
         ]
     )
 
-    confirm_input = ft.TextField(label="Type CONFIRM", border_color="red")
+    confirm_input = ft.TextField(label="Type CONFIRM", border_color="red", dense=True)
     confirm_btn = ft.ElevatedButton("Proceed", bgcolor="red", color="white", disabled=True)
 
     def validate_strict_input(e):
@@ -278,7 +346,7 @@ def PageantConfigView(page: ft.Page, event_id: int):
             page.open(ft.SnackBar(ft.Text(f"Error: {msg}"), bgcolor="red"))
 
     # --- FINAL ROUND DIALOG ---
-    final_confirm_input = ft.TextField(label="Type CONFIRM", border_color="red")
+    final_confirm_input = ft.TextField(label="Type CONFIRM", border_color="red", dense=True)
     final_confirm_btn = ft.ElevatedButton("ACTIVATE FINAL ROUND", bgcolor="grey", color="white", disabled=True)
 
     def validate_final_input(e):
@@ -452,9 +520,9 @@ def PageantConfigView(page: ft.Page, event_id: int):
     # =================================================================================================
     # TAB 2: CONTESTANTS (With Male/Female Separation)
     # =================================================================================================
-    c_number = ft.TextField(label="#", width=80, keyboard_type=ft.KeyboardType.NUMBER)
-    c_name = ft.TextField(label="Name", width=250)
-    c_gender = ft.Dropdown(label="Gender", width=250, options=[ft.dropdown.Option("Female"), ft.dropdown.Option("Male")], value="Female")
+    c_number = ft.TextField(label="#", width=80, keyboard_type=ft.KeyboardType.NUMBER, dense=True)
+    c_name = ft.TextField(label="Name", width=250, dense=True)
+    c_gender = ft.Dropdown(label="Gender", width=250, dense=True, options=[ft.dropdown.Option("Female"), ft.dropdown.Option("Male")], value="Female")
     img_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.COVER, visible=False, border_radius=10)
     
     # File Picker Logic
@@ -497,32 +565,80 @@ def PageantConfigView(page: ft.Page, event_id: int):
         contestant_tab_content.controls.clear()
         contestants = contestant_service.get_contestants(event_id)
         
-        contestant_tab_content.controls.append(ft.Row([ft.Text("Pageant Candidates", size=20, weight="bold"), ft.ElevatedButton("Add Candidate", icon=ft.Icons.ADD, on_click=open_add_c_dialog)], alignment="spaceBetween"))
+        # Header Row
+        # Hide Add Button if Read Only
+        add_candidate_btn = ft.ElevatedButton("Add Candidate", icon=ft.Icons.ADD, on_click=open_add_c_dialog, bgcolor="#64AEFF", color="white") if not is_read_only else ft.Container()
+        
+        contestant_tab_content.controls.append(ft.Row([
+            ft.Text("Pageant Candidates", size=24, weight="bold"),
+            add_candidate_btn
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
         
         def build_list(gender, icon, color):
             items = [c for c in contestants if c.gender == gender]
-            controls = [ft.Container(content=ft.Text(f"{gender.upper()} CANDIDATES", weight="bold", color=color), padding=5)]
+            title_color = "#64AEFF" if gender == "Male" else "#FF64AE"
+            
+            # List items
+            list_items = []
             for c in items:
-                controls.append(ft.Container(
-                    padding=10, bgcolor=ft.Colors.with_opacity(0.1, color), border_radius=10,
+                avatar = ft.CircleAvatar(
+                    foreground_image_src=c.image_path if c.image_path else "",
+                    content=ft.Text(c.name[0]) if not c.image_path else None,
+                    bgcolor=color,
+                    radius=20
+                )
+                
+                # Actions Row
+                if not is_read_only:
+                    actions = ft.Row([
+                        ft.IconButton(icon=ft.Icons.EDIT, icon_color="blue", icon_size=18, data=c, on_click=open_edit_c_dialog),
+                        ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", icon_size=18, data=c.id, on_click=delete_contestant)
+                    ])
+                else:
+                    actions = ft.Container()
+
+                list_items.append(ft.Container(
+                    padding=10, 
+                    bgcolor="white", 
+                    border_radius=10,
+                    margin=ft.margin.only(bottom=5),
+                    shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK12),
+                    border=ft.border.all(1, "#F0F0F0"),
                     content=ft.Row([
-                        ft.Row([ft.Container(content=ft.Text(f"#{c.candidate_number}", color="white", weight="bold"), bgcolor="black", padding=5, border_radius=5), ft.Text(c.name, weight="bold")]),
-                        ft.Row([ft.IconButton(icon=ft.Icons.EDIT, icon_color="blue", data=c, on_click=open_edit_c_dialog), ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", data=c.id, on_click=delete_contestant)])
+                        ft.Row([
+                            ft.Container(content=ft.Text(f"#{c.candidate_number}", color="white", weight="bold", size=12), bgcolor="black", padding=8, border_radius=5),
+                            avatar,
+                            ft.Text(c.name, weight="bold", size=14)
+                        ]),
+                        actions
                     ], alignment="spaceBetween")
                 ))
-            return ft.Column(controls, expand=True, scroll="hidden", spacing=5)
+            
+            # Column Wrapper for Gender
+            return ft.Container(
+                content=ft.Column([
+                    ft.Text(f"{gender.upper()} CANDIDATES", weight="bold", color=title_color, size=16),
+                    ft.Divider(color=title_color, height=2),
+                    ft.Column(list_items, spacing=5)
+                ]),
+                expand=True,
+                padding=10,
+                bgcolor="#F9FAFB",
+                border_radius=10
+            )
 
         contestant_tab_content.controls.append(ft.Row([
-            ft.Container(build_list("Male", ft.Icons.MAN, "blue"), expand=True), 
-            ft.VerticalDivider(), 
-            ft.Container(build_list("Female", ft.Icons.WOMAN, "pink"), expand=True)
-        ], expand=True))
+            build_list("Male", ft.Colors.BLUE_100, "blue"), 
+            ft.VerticalDivider(width=20, color="transparent"),
+            build_list("Female", ft.Colors.PINK_100, "pink")
+        ], expand=True, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START))
+        
         page.update()
 
     # =================================================================================================
     # TAB 3: JUDGES
     # =================================================================================================
-    j_select = ft.Dropdown(label="Select Judge", width=300)
+    j_select = ft.Dropdown(label="Select Judge", width=300, dense=True)
     j_is_chairman = ft.Checkbox(label="Is Chairman?", value=False)
     
     def save_judge(e):
@@ -542,20 +658,45 @@ def PageantConfigView(page: ft.Page, event_id: int):
 
     def refresh_judges_tab():
         judges_tab_content.controls.clear()
-        judges_tab_content.controls.append(ft.Row([ft.Text("Panel of Judges", size=20, weight="bold"), ft.ElevatedButton("Assign Judge", icon=ft.Icons.ADD, on_click=open_judge_dialog)], alignment="spaceBetween"))
+        
+        # Header
+        assign_btn = ft.ElevatedButton("Assign Judge", icon=ft.Icons.ADD, on_click=open_judge_dialog, bgcolor="#64AEFF", color="white") if not is_read_only else ft.Container()
+
+        judges_tab_content.controls.append(ft.Row([
+            ft.Text("Panel of Judges", size=24, weight="bold"), 
+            assign_btn
+        ], alignment="spaceBetween"))
         
         assigned = event_service.get_assigned_judges(event_id)
+        
+        cards = []
         for aj in assigned:
-            role_col = "orange" if aj.is_chairman else "blue"
-            judges_tab_content.controls.append(ft.Container(
-                padding=10, bgcolor=ft.Colors.GREY_50, border_radius=10,
+            role_col = "orange" if aj.is_chairman else "#64AEFF"
+            
+            remove_icon = ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", data=aj.id, on_click=remove_judge) if not is_read_only else ft.Container()
+
+            cards.append(ft.Container(
+                padding=20, 
+                bgcolor="white", 
+                border_radius=10,
+                shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.BLACK12),
+                border=ft.border.all(1, "#F0F0F0"),
                 content=ft.Row([
-                    ft.Row([ft.Icon(ft.Icons.GAVEL, color=role_col), ft.Text(aj.judge.name, weight="bold"), ft.Chip(label=ft.Text("Chairman" if aj.is_chairman else "Judge"))]),
-                    ft.IconButton(icon=ft.Icons.DELETE, icon_color="red", data=aj.id, on_click=remove_judge)
+                    ft.Row([
+                        ft.Icon(ft.Icons.GAVEL, color=role_col, size=30), 
+                        ft.Column([
+                            ft.Text(aj.judge.name, weight="bold", size=16),
+                            ft.Chip(label=ft.Text("Chairman" if aj.is_chairman else "Judge", size=10), bgcolor=ft.Colors.with_opacity(0.1, role_col))
+                        ], spacing=2)
+                    ]),
+                    remove_icon
                 ], alignment="spaceBetween")
             ))
+            
+        judges_tab_content.controls.append(ft.Column(cards, spacing=10))
         page.update()
-# ---------------------------------------------------------
+
+    # ---------------------------------------------------------
     # EXPORT DIALOG LOGIC
     # ---------------------------------------------------------
     
@@ -571,7 +712,29 @@ def PageantConfigView(page: ft.Page, event_id: int):
             event_name = ev.name if ev else "Event"
             db.close()
             
-            data = pageant_service.get_overall_breakdown(event_id)
+            # DETERMINE DATA & MODE
+            if selected_export_scope == "overall":
+                data = pageant_service.get_overall_breakdown(event_id)
+                mode = "overall"
+                doc_title = "OFFICIAL OVERALL STANDINGS"
+            else:
+                # It's a segment ID
+                try:
+                    seg_id = int(selected_export_scope)
+                    data = pageant_service.get_segment_tabulation(event_id, seg_id)
+                    mode = "segment"
+                    
+                    # Fetch Segment Name for Title
+                    db = SessionLocal()
+                    seg = db.query(Segment).get(seg_id)
+                    seg_name = seg.name.upper() if seg else "SEGMENT"
+                    db.close()
+                    
+                    doc_title = f"OFFICIAL RESULTS: {seg_name}"
+                except ValueError:
+                    page.open(ft.SnackBar(ft.Text("Invalid selection"), bgcolor="red"))
+                    return
+
             success = False
             
             try:
@@ -579,17 +742,17 @@ def PageantConfigView(page: ft.Page, event_id: int):
                     success = export_service.generate_excel(
                         filepath=save_path,
                         event_name=event_name,
-                        title="OFFICIAL TABULATION RESULTS",
+                        title=doc_title,
                         data_matrix=data,
-                        mode="overall"
+                        mode=mode
                     )
                 elif pending_export_type == "pdf":
                     success = export_service.generate_pdf(
                         filepath=save_path,
                         event_name=event_name,
-                        title="OFFICIAL TABULATION RESULTS",
+                        title=doc_title,
                         data_matrix=data,
-                        mode="overall"
+                        mode=mode
                     )
                 
                 if success:
@@ -629,12 +792,49 @@ def PageantConfigView(page: ft.Page, event_id: int):
             allowed_extensions=[file_type]
         )
 
+    # EXPORT SCOPE DROPDOWN
+    export_scope_dd = ft.Dropdown(
+        label="Data to Export",
+        width=300,
+        options=[], # Populated on open
+        dense=True,
+        bgcolor="white",
+        border_color="#64AEFF",
+    )
+    
+    def on_scope_change(e):
+        nonlocal selected_export_scope
+        selected_export_scope = export_scope_dd.value
+        
+    export_scope_dd.on_change = on_scope_change
+
+    def open_export_dialog(e):
+        # Refresh segments list
+        db = SessionLocal()
+        segments = db.query(Segment).filter(Segment.event_id == event_id).order_by(Segment.order_index).all()
+        db.close()
+        
+        opts = [ft.dropdown.Option("overall", "Overall Summary (Segments as Columns)")]
+        for s in segments:
+            opts.append(ft.dropdown.Option(str(s.id), f"{s.name} (Judges as Columns)"))
+            
+        export_scope_dd.options = opts
+        export_scope_dd.value = "overall"
+        # Update state variable too
+        nonlocal selected_export_scope
+        selected_export_scope = "overall"
+        
+        # export_scope_dd.update() # Removed to prevent crash
+        page.open(export_dialog)
+
     # The Dialog UI
     export_dialog = ft.AlertDialog(
         title=ft.Text("Export Results"),
         content=ft.Column([
-            ft.Text("Select the format you wish to download:"),
-            ft.Container(height=10),
+            ft.Text("Select what to export:"),
+            export_scope_dd,
+            ft.Divider(),
+            ft.Text("Select format:"),
             ft.Row([
                 ft.Container(
                     content=ft.Column([
@@ -669,8 +869,6 @@ def PageantConfigView(page: ft.Page, event_id: int):
         ]
     )
 
-    def open_export_dialog(e):
-        page.open(export_dialog)
     # =================================================================================================
     # TAB 4: TABULATION
     # =================================================================================================
@@ -685,7 +883,8 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 ft.ElevatedButton(
                     "Export Scores", 
                     icon=ft.Icons.DOWNLOAD, 
-                    on_click=open_export_dialog)
+                    on_click=open_export_dialog,
+                    bgcolor="#64AEFF", color="white")
                 ])
         ], alignment="spaceBetween"))
 
@@ -700,29 +899,74 @@ def PageantConfigView(page: ft.Page, event_id: int):
                 cols = ["Rank", "#", "Name"] + data['segments'] + ["Total"]
                 rows = []
                 for gender in ['Male', 'Female']:
-                    rows.append(ft.DataRow([ft.DataCell(ft.Text(f"-- {gender.upper()} --", weight="bold", color="blue"))] + [ft.DataCell(ft.Text(""))]*(len(cols)-1)))
-                    for r in data[gender]:
-                        cells = [ft.DataCell(ft.Text(str(r['rank']))), ft.DataCell(ft.Text(str(r['number']))), ft.DataCell(ft.Text(r['name']))]
+                    # Category Header
+                    rows.append(
+                        ft.DataRow(
+                            cells=[ft.DataCell(ft.Text(f"{gender.upper()} DIVISION", weight="bold", color="white"))] + [ft.DataCell(ft.Text(""))]*(len(cols)-1),
+                            color="#80C1FF" # Sub-header color
+                        )
+                    )
+                    for i, r in enumerate(data[gender]):
+                        row_color = "#F0F8FF" if i % 2 == 0 else "white"
+                        cells = [
+                            ft.DataCell(ft.Text(str(r['rank']), weight="bold")), 
+                            ft.DataCell(ft.Container(content=ft.Text(str(r['number']), color="white", size=10, weight="bold"), bgcolor="black", padding=5, border_radius=4)), 
+                            ft.DataCell(ft.Text(r['name'], weight="w500"))
+                        ]
                         for s in r['segment_scores']: cells.append(ft.DataCell(ft.Text(str(s))))
-                        cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="green")))
-                        rows.append(ft.DataRow(cells))
+                        cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="#64AEFF")))
+                        rows.append(ft.DataRow(cells, color=row_color))
             else: # Segment
                 data = pageant_service.get_segment_tabulation(event_id, seg_id)
                 cols = ["Rank", "#", "Name"] + data['judges'] + ["Average"]
                 rows = []
                 for gender in ['Male', 'Female']:
-                    rows.append(ft.DataRow([ft.DataCell(ft.Text(f"-- {gender.upper()} --", weight="bold", color="blue"))] + [ft.DataCell(ft.Text(""))]*(len(cols)-1)))
-                    for r in data[gender]:
-                        cells = [ft.DataCell(ft.Text(str(r['rank']))), ft.DataCell(ft.Text(str(r['number']))), ft.DataCell(ft.Text(r['name']))]
+                    rows.append(
+                        ft.DataRow(
+                            cells=[ft.DataCell(ft.Text(f"{gender.upper()} DIVISION", weight="bold", color="white"))] + [ft.DataCell(ft.Text(""))]*(len(cols)-1),
+                            color="#80C1FF"
+                        )
+                    )
+                    for i, r in enumerate(data[gender]):
+                        row_color = "#F0F8FF" if i % 2 == 0 else "white"
+                        cells = [
+                            ft.DataCell(ft.Text(str(r['rank']), weight="bold")), 
+                            ft.DataCell(ft.Container(content=ft.Text(str(r['number']), color="white", size=10, weight="bold"), bgcolor="black", padding=5, border_radius=4)), 
+                            ft.DataCell(ft.Text(r['name'], weight="w500"))
+                        ]
                         for s in r['scores']: cells.append(ft.DataCell(ft.Text(str(s))))
-                        cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="green")))
-                        rows.append(ft.DataRow(cells))
+                        cells.append(ft.DataCell(ft.Text(str(r['total']), weight="bold", color="#64AEFF")))
+                        rows.append(ft.DataRow(cells, color=row_color))
             
-            return ft.DataTable(columns=[ft.DataColumn(ft.Text(c, size=12)) for c in cols], rows=rows, heading_row_height=30, column_spacing=10)
+            return ft.Container(
+                content=ft.Row(
+                    controls=[
+                        ft.DataTable(
+                            columns=[ft.DataColumn(ft.Text(c, size=12, weight="bold", color="white")) for c in cols], 
+                            rows=rows, 
+                            heading_row_color="#64AEFF", # Leaderboard Blue
+                            heading_row_height=50,
+                            data_row_min_height=45,
+                            column_spacing=20,
+                            border_radius=10,
+                            vertical_lines=ft.border.BorderSide(1, "#F0F0F0"),
+                            horizontal_lines=ft.border.BorderSide(1, "#F0F0F0"),
+                        )
+                    ], 
+                    scroll=ft.ScrollMode.ADAPTIVE, 
+                    alignment=ft.MainAxisAlignment.CENTER # Centers the table in the Row
+                ),
+                padding=0,
+                bgcolor="white",
+                border=ft.border.all(1, "#E0E0E0"),
+                border_radius=10,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.BLACK12),
+            )
 
-        tabs = [ft.Tab(text="OVERALL", content=ft.Column([build_matrix(None)], scroll="adaptive"))]
+        tabs = [ft.Tab(text="OVERALL", content=ft.Column([build_matrix(None)], scroll="adaptive", horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20))]
         for s in segments:
-            tabs.append(ft.Tab(text=s.name.upper(), content=ft.Column([build_matrix(s.id)], scroll="adaptive")))
+            tabs.append(ft.Tab(text=s.name.upper(), content=ft.Column([build_matrix(s.id)], scroll="adaptive", horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20)))
 
         scores_tab_content.controls.append(ft.Tabs(tabs=tabs, expand=True))
         page.update()
@@ -734,18 +978,33 @@ def PageantConfigView(page: ft.Page, event_id: int):
     refresh_judges_tab()
     refresh_scores_tab()
 
-    return ft.Container(
-        content=ft.Tabs(
-            selected_index=0,
-            animation_duration=300,
-            tabs=[
-                ft.Tab(text="Configuration", icon=ft.Icons.SETTINGS, content=config_tab_content),
-                ft.Tab(text="Contestants", icon=ft.Icons.PEOPLE, content=contestant_tab_content),
-                ft.Tab(text="Judges", icon=ft.Icons.GAVEL, content=judges_tab_content),
-                ft.Tab(text="Tabulation", icon=ft.Icons.LEADERBOARD, content=scores_tab_content),
-            ],
-            expand=True
-        ),
-        padding=10,
+    return ft.Column(
+        controls=[
+            header,
+            ft.Container(
+                content=ft.Tabs(
+                    selected_index=0,
+                    animation_duration=300,
+                    tabs=[
+                        ft.Tab(text="Configuration", icon=ft.Icons.SETTINGS, content=ft.Container(config_tab_content, padding=20)),
+                        ft.Tab(text="Contestants", icon=ft.Icons.PEOPLE, content=ft.Container(contestant_tab_content, padding=20)),
+                        ft.Tab(text="Judges", icon=ft.Icons.GAVEL, content=ft.Container(judges_tab_content, padding=20)),
+                        ft.Tab(text="Tabulation", icon=ft.Icons.LEADERBOARD, content=ft.Container(scores_tab_content, padding=20)),
+                    ],
+                    expand=True,
+                    indicator_color="#64AEFF",
+                    label_color="#64AEFF",
+                    unselected_label_color="grey"
+                ),
+                padding=0,
+                expand=True,
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=["#DDF4FF", "#FDE9FF"]
+                )
+            )
+        ],
+        spacing=0,
         expand=True
     )

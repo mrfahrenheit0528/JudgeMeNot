@@ -8,6 +8,7 @@ from core.database import SessionLocal
 # Views
 from views.login_view import LoginView
 from views.signup_view import SignupView
+# AccountSetupView is no longer needed without Google Auth
 from views.admin_dashboard import AdminDashboardView
 from views.admin_config_view import AdminConfigView
 from views.judge_view import JudgeView
@@ -22,6 +23,18 @@ def main(page: ft.Page):
     page.title = "JudgeMeNot"
     page.theme_mode = ft.ThemeMode.LIGHT
     
+    # --- WINDOW SETTINGS ---
+    page.padding = 0 
+    
+    # Minimum Size (Prevents UI breaking on tiny resize)
+    page.window.min_width = 1200
+    page.window.min_height = 800
+    
+    # Starting Size (Default Desktop View)
+    page.window.width = 1200
+    page.window.height = 800
+    # -----------------------
+    
     auth_service = AuthService()
     
     # NOTE: Google Auth setup has been removed as per request.
@@ -32,29 +45,34 @@ def main(page: ft.Page):
         role = page.session.get("user_role")
 
         if page.route == "/login":
-            page.views.append(ft.View("/login", [LoginView(page, on_login_success)]))
+            # For specific pages, you might want padding back, but usually 
+            # views handle their own container padding.
+            page.views.append(ft.View("/login", [LoginView(page, on_login_success)], padding=0))
         
         elif page.route == "/signup":
-            page.views.append(ft.View("/signup", [SignupView(page)]))
+            page.views.append(ft.View("/signup", [SignupView(page)], padding=0))
         
-        # /account-setup route removed
-        
-        elif page.route == "/admin" and role == "Admin":
-            page.views.append(ft.View("/admin", [AdminDashboardView(page, on_logout)]))
-        elif page.route.startswith("/admin/event/") and role == "Admin":
+        # --- ADMIN ROUTING (UPDATED FOR ADMINVIEWER) ---
+        # Allow both 'Admin' and 'AdminViewer' to access the dashboard
+        elif page.route == "/admin" and role in ["Admin", "AdminViewer"]:
+            page.views.append(ft.View("/admin", [AdminDashboardView(page, on_logout)], padding=0))
+            
+        # Allow both to access event configuration (Read-only logic handled inside views)
+        elif page.route.startswith("/admin/event/") and role in ["Admin", "AdminViewer"]:
             eid = int(page.route.split("/")[-1])
-            page.views.append(ft.View(f"/admin/event/{eid}", [AdminConfigView(page, eid)]))
+            page.views.append(ft.View(f"/admin/event/{eid}", [AdminConfigView(page, eid)], padding=0))
+        # -----------------------------------------------
         
         elif page.route == "/judge" and role == "Judge":
-            page.views.append(ft.View("/judge", [JudgeView(page, on_logout)]))
+            page.views.append(ft.View("/judge", [JudgeView(page, on_logout)], padding=0))
         elif page.route == "/tabulator" and role == "Tabulator":
-            page.views.append(ft.View("/tabulator", [TabulatorView(page, on_logout)]))
+            page.views.append(ft.View("/tabulator", [TabulatorView(page, on_logout)], padding=0))
         
         elif page.route == "/leaderboard":
-            page.views.append(ft.View("/leaderboard", [EventListView(page)]))
+            page.views.append(ft.View("/leaderboard", [EventListView(page)], padding=0))
         elif page.route.startswith("/leaderboard/"):
             eid = int(page.route.split("/")[-1])
-            page.views.append(ft.View(f"/leaderboard/{eid}", [EventLeaderboardView(page, eid)]))
+            page.views.append(ft.View(f"/leaderboard/{eid}", [EventLeaderboardView(page, eid)], padding=0))
         else:
             page.go("/login")
         page.update()
@@ -68,7 +86,12 @@ def main(page: ft.Page):
         page.session.set("user_id", user.id)
         page.session.set("user_role", user.role)
         page.session.set("user_name", user.name)
-        page.go(f"/{user.role.lower()}")
+        
+        # Route logic
+        if user.role in ["Admin", "AdminViewer"]:
+            page.go("/admin")
+        else:
+            page.go(f"/{user.role.lower()}")
 
     def on_logout(e):
         page.session.clear()

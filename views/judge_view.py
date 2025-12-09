@@ -21,7 +21,12 @@ def JudgeView(page: ft.Page, on_logout_callback):
     cached_cards_ui = {'Male': [], 'Female': []} 
 
     is_polling = False; last_check_text = ft.Text("Initializing...", size=12, color="grey")
-    main_container = ft.Container(expand=True, padding=10)
+    main_container = ft.Container(expand=True, padding=10,
+                                                  gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=["#DDF4FF", "#FDE9FF"]
+                ))
 
     # ---------------------------------------------------------
     # POLLING
@@ -188,6 +193,13 @@ def JudgeView(page: ft.Page, on_logout_callback):
             border_col = ft.Colors.BLUE_200 if contestant.gender == "Male" else ft.Colors.PINK_200
             inputs_column = ft.Column(spacing=5); local_inputs = {}; is_locked = False
             
+            def revert_btn_state(btn):
+                # FIX: Check if button is still on page before reverting
+                if btn.page:
+                    btn.bgcolor = ft.Colors.BLUE
+                    btn.content = ft.Text("Lock & Save", color="white")
+                    btn.update()
+
             def toggle_lock(e):
                 nonlocal is_locked; btn = e.control
                 if not is_locked:
@@ -200,19 +212,38 @@ def JudgeView(page: ft.Page, on_logout_callback):
                         if val < 0 or val > ref['max']: valid=False; ref['field'].border_color="red"
                         else: ref['field'].border_color="green"; pageant_service.submit_score(judge_id, contestant.id, crit_id, val)
                     btn.disabled = False
-                    if valid: is_locked = True; btn.bgcolor = ft.Colors.ORANGE; btn.content = ft.Row([ft.Icon(ft.Icons.LOCK, color="white", size=16), ft.Text("Unlock", color="white")], alignment="center"); [ setattr(ref['field'], 'read_only', True) or ref['field'].update() for ref in local_inputs.values()]
-                    else: btn.bgcolor = ft.Colors.RED; btn.content = ft.Text("Error", color="white"); threading.Thread(target=lambda: (time.sleep(2), setattr(btn, 'bgcolor', ft.Colors.BLUE), setattr(btn, 'content', ft.Text("Lock & Save", color="white")), btn.update())).start()
-                else: is_locked = False; btn.bgcolor = ft.Colors.BLUE; btn.content = ft.Text("Lock & Save", color="white"); [ setattr(ref['field'], 'read_only', False) or ref['field'].update() for ref in local_inputs.values()]
-                page.update()
+                    if valid: 
+                        is_locked = True; btn.bgcolor = ft.Colors.ORANGE; btn.content = ft.Row([ft.Icon(ft.Icons.LOCK, color="white", size=16), ft.Text("Unlock", color="white")], alignment="center")
+                        # FIX: Loop properly and check if page exists for fields
+                        for ref in local_inputs.values():
+                            ref['field'].read_only = True
+                            if ref['field'].page: ref['field'].update()
+                    else: 
+                        btn.bgcolor = ft.Colors.RED; btn.content = ft.Text("Error", color="white")
+                        # FIX: Use safe revert function
+                        threading.Thread(target=lambda: (time.sleep(2), revert_btn_state(btn))).start()
+                else: 
+                    is_locked = False; btn.bgcolor = ft.Colors.BLUE; btn.content = ft.Text("Lock & Save", color="white")
+                    # FIX: Loop properly and check if page exists
+                    for ref in local_inputs.values():
+                        ref['field'].read_only = False
+                        if ref['field'].page: ref['field'].update()
+                
+                if btn.page: btn.update()
 
             def on_input_change(e):
-                if not is_locked: btn = cards_registry[contestant.id]['btn']; 
-                if btn.bgcolor != ft.Colors.BLUE: btn.bgcolor, btn.content = ft.Colors.BLUE, ft.Text("Lock & Save", color="white"); btn.update()
+                if not is_locked: 
+                    btn = cards_registry[contestant.id]['btn']
+                    if btn.bgcolor != ft.Colors.BLUE: 
+                        btn.bgcolor = ft.Colors.BLUE
+                        btn.content = ft.Text("Lock & Save", color="white")
+                        # FIX: Check if button is on page
+                        if btn.page: btn.update()
 
             for crit in structure['criteria']:
                 val = existing_scores.get(crit.id, ""); tf = ft.TextField(value=str(val) if val!="" else "", width=70, height=30, text_size=14, content_padding=5, text_align="center", on_change=on_input_change)
                 local_inputs[crit.id] = {"field": tf, "max": crit.max_score}
-                inputs_column.controls.append(ft.Row([ft.Text(crit.name, size=14, weight="bold", expand=True, max_lines=1, overflow="ellipsis"), ft.Text(f"/{int(crit.max_score)} ({int(crit.weight*100)}%)", size=11, color="grey"), tf], alignment="spaceBetween"))
+                inputs_column.controls.append(ft.Row([ft.Text(crit.name, size=14, weight="bold", expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS), ft.Text(f"/{int(crit.max_score)} ({int(crit.weight*100)}%)", size=11, color="grey"), tf], alignment="spaceBetween"))
 
             save_btn = ft.ElevatedButton(content=ft.Text("Lock & Save", color="white", size=14), bgcolor=ft.Colors.BLUE, width=float("inf"), height=40, on_click=toggle_lock)
             
@@ -242,7 +273,7 @@ def JudgeView(page: ft.Page, on_logout_callback):
                         on_click=lambda e: show_enlarged_image(contestant.image_path) if contestant.image_path else None
                     ), 
                     ft.Container(expand=True, content=ft.Column([
-                        ft.Row([ft.Container(content=ft.Text(f"#{contestant.candidate_number}", weight="bold", color="white", size=16), bgcolor="black", padding=5, border_radius=4), ft.Text(contestant.name, weight="bold", size=16, expand=True, max_lines=2, overflow="ellipsis")], alignment="start", vertical_alignment="start"), 
+                        ft.Row([ft.Container(content=ft.Text(f"#{contestant.candidate_number}", weight="bold", color="white", size=16), bgcolor="black", padding=5, border_radius=4), ft.Text(contestant.name, weight="bold", size=16, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)], alignment="start", vertical_alignment="start"), 
                         ft.Divider(height=10, color="transparent"), 
                         inputs_column, 
                         ft.Container(height=10), 

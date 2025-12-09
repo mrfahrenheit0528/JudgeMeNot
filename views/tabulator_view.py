@@ -34,7 +34,12 @@ def TabulatorView(page: ft.Page, on_logout_callback):
     answers_cache = {} 
     
     # UI Containers
-    main_container = ft.Container(expand=True, padding=20)
+    main_container = ft.Container(expand=True, padding=20,
+                                                  gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=["#DDF4FF", "#FDE9FF"]
+                ))
     score_list = ft.Column(scroll="adaptive", expand=True, spacing=10)
 
     # ---------------------------------------------------------
