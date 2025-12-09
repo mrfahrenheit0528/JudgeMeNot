@@ -8,7 +8,6 @@ from core.database import SessionLocal
 # Views
 from views.login_view import LoginView
 from views.signup_view import SignupView
-# AccountSetupView is no longer needed without Google Auth
 from views.admin_dashboard import AdminDashboardView
 from views.admin_config_view import AdminConfigView
 from views.judge_view import JudgeView
@@ -25,15 +24,10 @@ def main(page: ft.Page):
     
     # --- WINDOW SETTINGS ---
     page.padding = 0 
-    
-    # Minimum Size (Prevents UI breaking on tiny resize)
     page.window.min_width = 500
     page.window.min_height = 700
-    
-    # Starting Size (Default Desktop View)
     page.window.width = 1200
     page.window.height = 800
-    # -----------------------
     
     auth_service = AuthService()
     
@@ -41,30 +35,23 @@ def main(page: ft.Page):
         # ---------------------------------------------------------
         # 🔒 ANDROID LOCK (DEPLOYMENT MODE)
         # ---------------------------------------------------------
-        # Detect if the user is accessing via an Android device
         user_agent = page.client_user_agent or ""
         is_android = "Android" in user_agent or page.platform == ft.PagePlatform.ANDROID
 
-        # If on Android, BLOCK access to anything except Leaderboards
         if is_android:
             if not page.route.startswith("/leaderboard"):
                 page.go("/leaderboard")
-                return # Stop processing to prevent the restricted view from loading
-        # ---------------------------------------------------------
+                return 
 
         page.views.clear()
         uid = page.session.get("user_id")
         role = page.session.get("user_role")
 
         if page.route == "/login":
-            # For specific pages, you might want padding back, but usually 
-            # views handle their own container padding.
             page.views.append(ft.View("/login", [LoginView(page, on_login_success)], padding=0))
         
         elif page.route == "/signup":
             page.views.append(ft.View("/signup", [SignupView(page)], padding=0))
-        
-        # /account-setup route removed
         
         elif page.route == "/admin" and role in ["Admin", "AdminViewer"]:
             page.views.append(ft.View("/admin", [AdminDashboardView(page, on_logout)], padding=0))
@@ -103,6 +90,12 @@ def main(page: ft.Page):
             page.go(f"/{user.role.lower()}")
 
     def on_logout(e):
+        # --- NEW: LOG THE LOGOUT EVENT ---
+        uid = page.session.get("user_id")
+        if uid:
+            auth_service.logout(uid)
+        # ---------------------------------
+        
         page.session.clear()
         page.go("/login")
 
@@ -110,7 +103,6 @@ def main(page: ft.Page):
     page.on_view_pop = view_pop
     page.go("/login")
 
-# --- HELPER: GET LOCAL IP ---
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -128,7 +120,6 @@ if __name__ == "__main__":
     print(f"--------------------------------------------------")
     print(f"🚀  JUDGE ME NOT SYSTEM IS RUNNING!")
     print(f"📱  Judges connect here: http://{my_ip}:{port}")
-    print(f"💻  Local Access:        http://127.0.0.1:{port}")
     print(f"--------------------------------------------------")
 
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host=my_ip)

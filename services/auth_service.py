@@ -36,10 +36,16 @@ class AuthService:
                     )
                     db.add(log)
                     db.commit()
+                    
+                    # FIX: Refresh user to reload attributes because commit() expired them
+                    db.refresh(user)
+                    
                 except Exception as e:
                     print(f"Logging Failed: {e}") 
                 # --------------------------------
                 
+                # FIX: Detach user from this session so it persists after db.close()
+                db.expunge(user)
                 return user
             else:
                 return None
@@ -48,12 +54,35 @@ class AuthService:
             return None
         finally:
             db.close()
+    
+    # --- NEW LOGOUT METHOD ---
+    def logout(self, user_id):
+        """Logs the logout event."""
+        db: Session = SessionLocal()
+        try:
+            user = db.query(User).get(user_id)
+            if user:
+                log = AuditLog(
+                    user_id=user.id,
+                    action="LOGOUT",
+                    details=f"User '{user.username}' ({user.role}) logged out.",
+                    timestamp=datetime.datetime.now()
+                )
+                db.add(log)
+                db.commit()
+        except Exception as e:
+            print(f"Logout Log Error: {e}")
+        finally:
+            db.close()
 
     def get_user_by_id(self, user_id):
         """Helper to retrieve user details during session check"""
         db = SessionLocal()
         try:
-            return db.query(User).filter(User.id == user_id).first()
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                db.expunge(user) # Detach to prevent issues
+            return user
         finally:
             db.close()
 
@@ -61,7 +90,10 @@ class AuthService:
         """Retrieves a user based on their Google ID."""
         db = SessionLocal()
         try:
-            return db.query(User).filter(User.google_id == google_id).first()
+            user = db.query(User).filter(User.google_id == google_id).first()
+            if user:
+                db.expunge(user) # Detach to prevent issues
+            return user
         finally:
             db.close()
 
