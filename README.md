@@ -28,7 +28,7 @@ Welcome to the repository for the **JudgeMeNot** system\! This is a modular **Fl
 
 ### **1\. Clone the Repository**
 
-git clone \<YOUR\_REPO\_LINK\>  
+git clone \<REPO LINK\>  
 cd JudgeMeNot\_System
 
 ### **2\. Set Up Virtual Environment**
