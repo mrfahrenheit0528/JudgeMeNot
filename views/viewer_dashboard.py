@@ -1,12 +1,12 @@
 import flet as ft
 import threading
 import time
+# IMPORT BOTH SERVICES
 from services.quiz_service import QuizService
 from services.pageant_service import PageantService
 from core.database import SessionLocal
 from models.all_models import Event, Segment, Score, Contestant, Criteria
 from sqlalchemy import func
-from components.dialogs import show_about_dialog, show_contact_dialog # reused for header
 
 # ---------------------------------------------------------
 # VIEW 1: EVENT GALLERY (List of All Events)
@@ -21,6 +21,7 @@ def EventListView(page: ft.Page):
     # --- SMART NAVIGATION LOGIC ---
     def go_back_logic(e):
         user_role = page.session.get("user_role")
+        
         if user_role in ["Admin", "AdminViewer"]:
             page.go("/admin")
         elif user_role == "Judge":
@@ -34,52 +35,30 @@ def EventListView(page: ft.Page):
         icon = ft.Icons.WOMAN if event_data.event_type == "Pageant" else ft.Icons.LIGHTBULB
         return ft.Container(
             content=ft.Column([
-                ft.Icon(icon, size=40, color="white"), 
-                ft.Text(event_data.name, size=16, weight="bold", color="white", text_align="center", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Icon(icon, size=40, color="white70"),
+                ft.Text(event_data.name, size=18, weight="bold", color="white", text_align="center", no_wrap=False, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Container(
-                    content=ft.Text("View Results", size=12, color="white", weight="bold"),
-                    padding=ft.padding.symmetric(horizontal=15, vertical=8),
-                    bgcolor=ft.Colors.with_opacity(0.3, "white"), # Glass effect button
-                    border_radius=20,
+                    content=ft.Text("View Standings", size=12, color="white"),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                    bgcolor=ft.Colors.BLUE_600,
+                    border_radius=20
                 )
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-            bgcolor=ft.Colors.with_opacity(0.1, "white"), # Glass card
+            bgcolor=ft.Colors.WHITE10,
             border_radius=15,
             padding=20,
-            width=180,
-            height=180,
+            width=200,
+            height=200,
             ink=True,
             on_click=lambda e: page.go(f"/leaderboard/{event_data.id}"),
-            border=ft.border.all(1, ft.Colors.with_opacity(0.2, "white")),
-            shadow=ft.BoxShadow(blur_radius=15, color=ft.Colors.BLACK45)
+            border=ft.border.all(1, ft.Colors.WHITE10),
+            shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.BLACK12)
         )
 
-    # Standard Header (Consistent with App)
-    header_logo = ft.Container(
-        width=40, height=40, border_radius=50, bgcolor="transparent",
-        border=ft.border.all(2, "black"), padding=5,
-        content=ft.Image(src="hammer.png", fit=ft.ImageFit.CONTAIN, error_content=ft.Icon(ft.Icons.GAVEL, color="black"))
-    )
-
-    header = ft.Container(
-        height=70, padding=ft.padding.symmetric(horizontal=20), bgcolor="#80C1FF", 
-        shadow=ft.BoxShadow(blur_radius=5, color=ft.Colors.GREY_900), # Darker shadow for depth
-        content=ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            controls=[
-                ft.Row(spacing=10, controls=[
-                    ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=go_back_logic),
-                    header_logo, 
-                    ft.Text("Event Gallery", size=20, weight="bold", color="black")
-                ]),
-                ft.Row(spacing=5, controls=[
-                    ft.TextButton("ABOUT", style=ft.ButtonStyle(color="black"), on_click=lambda e: show_about_dialog(page)),
-                    # FIXED: Added Contact Button back
-                    ft.TextButton("CONTACT", style=ft.ButtonStyle(color="black"), on_click=lambda e: show_contact_dialog(page)),
-                ])
-            ]
-        )
-    )
+    header = ft.Column([
+        ft.Text("Event Gallery", size=32, weight="bold", color="white"),
+        ft.Text("Select an event to view live results", size=16, color="white70")
+    ])
 
     # Using Row with wrap=True + alignment=center ensures items are centered even if few
     events_row = ft.Row(
@@ -98,29 +77,29 @@ def EventListView(page: ft.Page):
 
     return ft.Container(
         expand=True,
-        # THE PURPLE GRADIENT BACKGROUND
         gradient=ft.LinearGradient(
             begin=ft.alignment.top_left,
             end=ft.alignment.bottom_right,
             colors=["#831CA5", "#074E96"] # Deep Purple to Light
         ),
-        content=ft.Column(
-            expand=True,
-            controls=[
-                header,
-                ft.Container(
-                    content=ft.Column(
-                        controls=[events_row],
-                        scroll="adaptive", # Allow vertical scroll for many events
-                        expand=True,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER # Ensure content centers
-                    ),
-                    padding=30,
+        padding=30,
+        content=ft.Column([
+            ft.Row([
+                ft.IconButton(ft.Icons.ARROW_BACK, icon_color="white", tooltip="Go Back", on_click=go_back_logic),
+                header
+            ], spacing=20),
+            ft.Divider(color="white24", height=30),
+            ft.Container(
+                content=ft.Column(
+                    controls=[events_row],
+                    scroll="adaptive", 
                     expand=True,
-                    alignment=ft.alignment.center # Center the whole block
-                )
-            ]
-        )
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER 
+                ),
+                expand=True,
+                alignment=ft.alignment.center
+            )
+        ])
     )
 
 # ---------------------------------------------------------
@@ -140,8 +119,8 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
     if ev: event_type = ev.event_type
     db.close()
     
-    # UI Elements (White Text for Purple Background)
-    title_text = ft.Text("Loading...", size=24, weight="bold", color="white")
+    # UI Elements
+    title_text = ft.Text("Loading...", size=30, weight="bold", color="white")
     status_text = ft.Text("Waiting for updates...", color="white70", size=14)
     
     # FIXED: Added horizontal_alignment=CENTER to center the tables
@@ -156,7 +135,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
         db = SessionLocal()
         event = db.query(Event).get(event_id)
         if event:
-            title_text.value = event.name.upper()
+            title_text.value = event.name
         
         scores = []
         mode_label = "LIVE RESULTS"
@@ -223,6 +202,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                 for seg in prelim_segs:
                     val = db.query(func.sum(Score.score_value)).filter(Score.contestant_id==c.id, Score.segment_id==seg.id).scalar() or 0
                     prelim_total += val
+                    # For Quiz Bee, we decided all are revealed, so always append
                     p_breakdown.append(int(val))
                 
                 # Sum Finals
@@ -241,9 +221,12 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     "status": c.status
                 })
             
-            # Sort
-            if rank_by_final: scores.sort(key=lambda x: (x['f_tot'], x['p_tot']), reverse=True)
-            else: scores.sort(key=lambda x: x['p_tot'], reverse=True)
+            # Sort with Tie-Breaker
+            if rank_by_final: 
+                # Sort by Final, then Prelim (Tie-breaker)
+                scores.sort(key=lambda x: (x['f_tot'], x['p_tot']), reverse=True)
+            else: 
+                scores.sort(key=lambda x: x['p_tot'], reverse=True)
 
         # =================================================================
         # PAGEANT LOGIC
@@ -270,6 +253,8 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                         avg_val = db.query(func.avg(Score.score_value)).filter(Score.contestant_id == c.id, Score.criteria_id == crit.id).scalar() or 0.0
                         seg_raw_score += (avg_val * crit.weight)
                     
+                    # Accumulate Weighted Total (Score * Percentage Weight)
+                    # e.g. Score 90 * 0.40 = 36.0
                     prelim_weighted_total += (seg_raw_score * seg.percentage_weight)
                     
                     if seg.is_revealed:
@@ -288,9 +273,10 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     if seg.is_revealed:
                         final_row_scores.append(round(seg_raw_score, 2))
 
-                # --- NORMALIZE PERCENTAGE ---
-                prelim_percent = round((prelim_weighted_total / 10.0) * 100, 2)
-                final_percent = round((final_weighted_total / 10.0) * 100, 2) 
+                # --- FIX: CORRECT PERCENTAGE CALCULATION ---
+                # Removed the extra division/multiplication. The weighted total is already the 0-100 representation.
+                prelim_percent = round(prelim_weighted_total, 2)
+                final_percent = round(final_weighted_total, 2) 
 
                 scores.append({
                     "name": c.name,
@@ -301,9 +287,13 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     "f_tot": final_percent
                 })
             
-            # Sort
-            if rank_by_final: scores.sort(key=lambda x: x['f_tot'], reverse=True)
-            else: scores.sort(key=lambda x: x['p_tot'], reverse=True)
+            # Sort with Tie-Breaker
+            if rank_by_final: 
+                # Sort by Final Score first, break ties with Prelim Score
+                # The logic: If Final scores are equal (0.0), whoever had higher Prelim wins.
+                scores.sort(key=lambda x: (x['f_tot'], x['p_tot']), reverse=True)
+            else: 
+                scores.sort(key=lambda x: x['p_tot'], reverse=True)
 
         db.close()
         return scores, mode_label, p_headers, f_headers, show_prelim_total
@@ -320,24 +310,21 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                 return
 
             # --- RESPONSIVE SETTINGS ---
-            # 1. Detect screen size (fallback to 400 if not ready)
             current_width = page.width if page.width > 0 else 400
-            is_mobile = current_width < 750
+            is_mobile = current_width < 800
             
-            # 2. Dynamic Text Sizes
-            heading_size = 10 if is_mobile else 12
-            data_size = 10 if is_mobile else 12
-            badge_size = 20 if is_mobile else 30
-            row_height = 40 if is_mobile else 50 # Compact rows on mobile
+            heading_size = 8 if is_mobile else 12
+            data_size = 8 if is_mobile else 12
+            badge_size = 16 if is_mobile else 30
+            row_height = 32 if is_mobile else 50 
 
             def create_modern_table(rows, cols, color_theme, title):
-                # The "Card" container for the table
                 return ft.Container(
                     content=ft.Column([
                         ft.Container(
-                            content=ft.Text(title, weight="bold", color="white", size=18 if not is_mobile else 16),
+                            content=ft.Text(title, weight="bold", color="white", size=18 if not is_mobile else 14),
                             padding=ft.padding.symmetric(horizontal=15, vertical=10),
-                            bgcolor=color_theme, # Header bar for the card
+                            bgcolor=color_theme, 
                             border_radius=ft.border_radius.only(top_left=10, top_right=10)
                         ),
                         ft.Row([
@@ -345,15 +332,14 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                                 columns=cols,
                                 rows=rows,
                                 heading_row_height=row_height,
-                                data_row_max_height=row_height + 10, # Slight buffer
+                                data_row_max_height=row_height + 10,
                                 heading_text_style=ft.TextStyle(weight="bold", color="black", size=heading_size),
                                 data_text_style=ft.TextStyle(size=data_size, color="black"),
-                                column_spacing=10 if is_mobile else 20, # Tighter spacing on phone
-                                # Table styling
+                                column_spacing=10 if is_mobile else 20,
                                 vertical_lines=ft.border.BorderSide(1, "#F0F0F0"),
-                                heading_row_color=ft.Colors.with_opacity(0.1, color_theme), # Subtle tint matching category
+                                heading_row_color=ft.Colors.with_opacity(0.1, color_theme), 
                             )
-                        ], scroll="adaptive", expand=True) # Horizontal Scroll for mobile
+                        ], scroll="adaptive", expand=True) 
                     ]),
                     bgcolor="white",
                     border_radius=10,
@@ -361,8 +347,6 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     margin=ft.margin.only(bottom=20),
                     shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.BLACK26),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                    # RESPONSIVE WIDTH: Auto (None) allows it to shrink to fit content
-                    # But we wrap content columns in a Center aligned wrapper to keep it neat
                     width=None 
                 )
 
@@ -387,7 +371,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     elif i == 1: rank_content = ft.Container(content=ft.Text("2", color="white", weight="bold", size=data_size), bgcolor="#C0C0C0", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center) # Silver
                     elif i == 2: rank_content = ft.Container(content=ft.Text("3", color="white", weight="bold", size=data_size), bgcolor="#CD7F32", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center) # Bronze
                     
-                    row_color = "#F9FAFB" if i % 2 == 0 else "white" # Very subtle striping
+                    row_color = "#F9FAFB" if i % 2 == 0 else "white"
                     text_col = "grey" if is_elim else "black"
 
                     cells = [
@@ -408,8 +392,8 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     subset = [r for r in results if r.get('gender') == gender]
                     if not subset: return None
                     
-                    if f_headers: subset.sort(key=lambda x: x['f_tot'], reverse=True)
-                    else: subset.sort(key=lambda x: x['p_tot'], reverse=True)
+                    # Already sorted in get_data(), but re-indexing ranks here for display
+                    for idx, s in enumerate(subset): s['rank'] = idx + 1
 
                     # --- COLUMNS ---
                     cols = [
@@ -417,17 +401,18 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                         ft.DataColumn(ft.Text(f"{gender.upper()} CANDIDATE"))
                     ]
                     for h in p_headers: cols.append(ft.DataColumn(ft.Text(h, size=heading_size), numeric=True))
-                    if show_p_total: cols.append(ft.DataColumn(ft.Text("PRELIM %", weight="bold", size=heading_size), numeric=True))
+                    if show_p_total: cols.append(ft.DataColumn(ft.Text("PRELIM %", weight="bold"), numeric=True))
                     for h in f_headers: cols.append(ft.DataColumn(ft.Text(h, size=heading_size), numeric=True))
 
                     rows = []
-                    for idx, r in enumerate(subset):
+                    for r in subset:
                         # Modern Rank Badge
-                        rank_content = ft.Text(str(idx+1), weight="bold", size=data_size)
-                        if idx == 0: rank_content = ft.Container(content=ft.Text("1", color="white", weight="bold", size=data_size), bgcolor="#FFD700", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
-                        elif idx == 1: rank_content = ft.Container(content=ft.Text("2", color="white", weight="bold", size=data_size), bgcolor="#C0C0C0", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
-                        elif idx == 2: rank_content = ft.Container(content=ft.Text("3", color="white", weight="bold", size=data_size), bgcolor="#CD7F32", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
+                        rank_content = ft.Text(str(r['rank']), weight="bold", size=data_size)
+                        if r['rank'] == 1: rank_content = ft.Container(content=ft.Text("1", color="white", weight="bold", size=data_size), bgcolor="#FFD700", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
+                        elif r['rank'] == 2: rank_content = ft.Container(content=ft.Text("2", color="white", weight="bold", size=data_size), bgcolor="#C0C0C0", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
+                        elif r['rank'] == 3: rank_content = ft.Container(content=ft.Text("3", color="white", weight="bold", size=data_size), bgcolor="#CD7F32", border_radius=50, width=badge_size, height=badge_size, alignment=ft.alignment.center)
 
+                        idx = r['rank'] - 1
                         row_color = "#F9FAFB" if idx % 2 == 0 else "white"
 
                         cells = [
@@ -466,7 +451,6 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
         page.go("/leaderboard")
 
     # Header for the specific event view
-    # Uses transparent background to blend with the purple gradient
     header = ft.Container(
         height=70, padding=ft.padding.symmetric(horizontal=20),
         content=ft.Row(
@@ -479,7 +463,6 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
 
     return ft.Container(
         expand=True,
-        # THE PURPLE GRADIENT (Restored & Enhanced)
         gradient=ft.LinearGradient(
             begin=ft.alignment.top_left,
             end=ft.alignment.bottom_right,
@@ -493,7 +476,7 @@ def EventLeaderboardView(page: ft.Page, event_id: int):
                     content=content_wrapper,
                     padding=20, 
                     expand=True,
-                    alignment=ft.alignment.center # Ensures the table column is centered
+                    alignment=ft.alignment.center 
                 )
             ]
         )
