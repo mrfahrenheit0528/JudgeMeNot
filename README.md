@@ -1,129 +1,88 @@
-# **📂 JudgeMeNot Tabulation System**
+# **JudgeMeNot Tabulation System**
 
 **Project for App Dev, IAS, and SE Courses**
 
-Welcome to the repository for the **JudgeMeNot** system\! This is a modular Flet application (Python) using a MySQL database.
+Welcome to the repository for the **JudgeMeNot** system\! This is a modular **Flet** application (Python) designed to provide a secure, real-time tabulation solution for school events, pageants, and quiz bees.
 
-## **👥 Team Roles & Assignments**
+## **About the Project**
 
-| Member | Role | Primary Responsibility |
-| :---- | :---- | :---- |
-| **Elmo** | **Lead Programmer** | Core Architecture, Database Models, Tabulation Logic, Routing (main.py) |
-| **Teammate 1** | **UI/UX Developer** | **Login Screen** (views/login\_view.py) \- Design the interface for authentication. |
-| **Teammate 2** | **Security UI Dev** | **Audit Log Viewer** (views/audit\_log\_view.py) \- Design the security reporting table. |
-| **Docs Team** | **QA & Documentation** | Create test cases, update the User Manual, and maintain the Threat Model. |
+**JudgeMeNot** replaces traditional paper-based scoring with a digital, automated platform. It ensures transparency and accuracy by allowing Judges to submit scores via a secure interface while the system automatically calculates weighted averages and rankings in real-time.
 
----
+### **Key Features**
 
-**🛠️ Setting Up Your Environment (Do this first\!)**
+* **Event Flexibility:** Supports both **Pageants** (Criteria-based scoring) and **Quiz Bees** (Right/Wrong scoring with clincher rounds).  
+* **Real-Time Tabulation:** Leaderboards update instantly as scores are submitted.  
+* **Role-Based Security:** Distinct portals for **Admins**, **Judges**, **Tabulators**, and **Viewers**.  
+* **Audit Logging:** Tracks every login, score submission, and configuration change for security compliance (IAS).  
+* **Automated Reports:** One-click generation of official results in **PDF** and **Excel** formats.
 
-Before you write any code, you must set up your laptop correctly.
+## **Tech Stack**
+
+* **Frontend & Backend:** [Flet](https://flet.dev/) (Python)  
+* **Database:** MySQL (8.0+)  
+* **ORM:** SQLAlchemy  
+* **Security:** bcrypt for password hashing  
+* **Reporting:** reportlab (PDF), openpyxl (Excel)
+
+## **Quick Start Guide**
 
 ### **1\. Clone the Repository**
 
-Open your terminal or Git Bash and run:
-
-```Bash
-
-git clone \<YOUR\_GITHUB\_REPO\_LINK\_HERE\>  
+git clone \<YOUR\_REPO\_LINK\>  
 cd JudgeMeNot\_System
-```
-### **2\. Create the Virtual Environment**
 
-We use a virtual environment to keep our libraries organized. **Do not skip this.**
+### **2\. Set Up Virtual Environment**
 
-**Windows:**
+It is highly recommended to use a virtual environment to manage dependencies.
 
-```Bash
-
+\# Windows  
 python \-m venv venv  
 venv\\Scripts\\activate
-```
-*(If you see (venv) appear at the start of your command line, it worked\!)*
 
-**Mac/Linux:**
-
-```Bash
-
+\# Mac/Linux  
 python3 \-m venv venv  
 source venv/bin/activate
-```
+
 ### **3\. Install Dependencies**
 
-We have a list of required libraries (Flet, SQLAlchemy, etc.). Install them all at once:
-
-```Bash
-
 pip install \-r requirements.txt
-```
-*\> **Note:** Do not uninstall any libraries even if they look unfamiliar (e.g., anyio, httpx). Flet needs them to run.*
 
-### **4\. Database Setup (MySQL)**
+### **4\. Configure Database**
 
-1. Make sure **XAMPP** (or MySQL Server) is running.  
-2. Create a blank database named judgemenot\_db.  
-3. Run our setup script to create the tables and the Admin user:  
-   ```Bash  
+1. Ensure **XAMPP** (or MySQL Server) is running.  
+2. Create an empty database named judgemenot\_db.  
+3. Run the initialization script to create tables and the default Admin account:  
    python init\_db.py
-   ```
----
 
-**🚀 How to Contribute (The Workflow)**
+   **Default Admin Credentials:**  
+   * Username: admin  
+   * Password: admin123
 
-**⚠️ IMPORTANT:** Never push directly to the main branch. Always work on your own branch.
+### **5\. Run the Application**
 
-### **Step 1: Create a Branch**
+flet run main.py
 
-Whenever you start a new task (e.g., "Designing Login"), create a new branch:
+*The app will launch in your default web browser or as a desktop window.*
 
-```Bash
+## **Project Structure**
 
-git checkout \-b feature/login-screen
-```
-### **Step 2: Write Your Code**
+JudgeMeNot\_System/  
+├── core/               \# Database connection & settings  
+├── models/             \# Database Tables (SQLAlchemy Models)  
+├── services/           \# Business Logic (Calculations, Auth, Export)  
+├── views/              \# UI Screens (Login, Dashboard, Scoring)  
+├── assets/             \# Images and static files  
+├── main.py             \# Application Entry Point & Routing  
+└── init\_db.py          \# Database setup script
 
-You can test your specific file by adding this temporary code at the bottom of your file:
+## **Team Roles & Assignments**
 
-```Python
+| Member Name | Role | Primary Responsibilities |
+| :---- | :---- | :---- |
+| **Guiller Angelo Hermoso** | **Project Lead / Backend, UI, Documentation**  | Core architecture, database design, tabulation logic (Pageant/Quiz) |
+| **John Careal Morandarte** | **Frontend & Design, QA, Documentation**  | UI implementation (Flet), responsive design, Judges' interface, Leaderboard visualization. (and other assigned tasks) |
+| **Harvey Lloyd Palacios** | **Security & QA, Documentation, Frontend**  | Audit logging implementation, user role verification, testing strategies, security compliance. (and other assigned tasks) |
 
-if \_\_name\_\_ \== "\_\_main\_\_":  
-    ft.app(target=LoginView) \# Change to your function name
-```
-*Run it with python views/login\_view.py to see your work.*
+## **License**
 
-### **Step 3: Push Your Changes**
-
-Once you are happy with your code:
-
-```Bash
-
-git add .  
-git commit \-m "Added layout for login screen"  
-git push origin feature/login-screen
-```
-### **Step 4: Create a Pull Request (PR)**
-
-1. Go to our GitHub page.  
-2. You will see a button "Compare & Pull request". Click it.  
-3. **I** will review your code and merge it into the main system.
-
----
-
-**📂 Project Structure (Where things go)**
-
-We are using a modular design. Please stick to these folders:
-
-* core/ ➝ Settings and Database connection (Don't touch unless asked).  
-* models/ ➝ Database Tables (User, Event, Score).  
-* views/ ➝ **YOUR WORKSPACE.** All UI screens go here.  
-* services/ ➝ Backend logic (Calculations, Auth checks).  
-* main.py ➝ The entry point that runs the whole app.
-
----
-
-**❓ FAQ / Troubleshooting**
-
-Q: I get a "Module not found" error.  
-A: You probably forgot to activate your virtual environment. Run venv\\Scripts\\activate. and install the requirements 
-Q: The database isn't connecting.  
-A: Check if XAMPP MySQL is running.  
+This project is created for academic purposes.
