@@ -1,6 +1,6 @@
-# **Testing Strategy & Compliance Report**
+# **5 Testing Strategy & Compliance Report**
 
-## **1\. Automated Test Coverage**
+## **5.1\. Automated Test Coverage**
 
 We have implemented unit and integration tests using the unittest framework.  
 To run the automated test suite:  
@@ -17,7 +17,7 @@ python \-m unittest tests/test\_core\_logic.py
 | **Enhancement** | test\_multi\_platform\_logic | **Multi-Platform:** Validates the User Agent parsing logic for Android detection. |
 | **Integration** | test\_integration\_event\_lifecycle | Simulates full workflow: Create Event \-\> Add Round \-\> Activate Round. |
 
-## **2\. Manual Test Matrix (Exploratory Testing)**
+## **5.2\. Manual Test Matrix (Exploratory Testing)**
 
 This matrix covers UI interactions and edge cases that are difficult to unit test.
 
@@ -31,7 +31,19 @@ This matrix covers UI interactions and edge cases that are difficult to unit tes
 | **MAN-06** | **Offline/Sync** | 1\. Disconnect DB. 2\. Attempt Login. | App shows "Connection Error" Snackbar instead of crashing. | ✅ Pass |
 | **MAN-07** | **Calculations** | 1\. Enter scores: 90 (40%), 80 (60%). 2\. Check Result. | Total is exactly **84.0**. | ✅ Pass |
 
-## **3\. Static Analysis & Code Quality**
+## **5.3 Manual Testing Matrix**
+
+| Scenario | Steps | Expected Result | Pass/Fail |
+| :---- | :---- | :---- | :---- |
+| **Login Guard** | Enter invalid password. | Error message "Invalid credentials" appears. | ✅ PASS |
+| **Role Access** | Login as Judge \-\> Try accessing /admin. | System redirects user back to Login/Home. | ✅ PASS |
+| **Android Lock** | Use Chrome DevTools to simulate Pixel 5\. | App auto-redirects to /leaderboard (Read Only). | ✅ PASS |
+| **Calculation Accuracy** | Enter scores: 90 (Weight 40%), 80 (Weight 60%). | Total should be exactly **84.0**. | ✅ PASS |
+| **Export** | Click "Export PDF" in Admin Tabulation. | PDF downloads with correct formatting. | ✅ PASS |
+
+
+
+## **5.4\. Static Analysis & Code Quality**
 
 We adhere to PEP 8 standards using ruff (or flake8) for linting and black for formatting.
 

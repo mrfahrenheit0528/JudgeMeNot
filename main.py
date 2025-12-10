@@ -123,5 +123,5 @@ if __name__ == "__main__":
     print(f"📱  Judges connect here: http://{my_ip}:{port}")
     print(f"--------------------------------------------------")
 
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host=my_ip)
-    # ft.app(target=main)
+    # ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host=my_ip)
+    ft.app(target=main)
